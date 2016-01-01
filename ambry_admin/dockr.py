@@ -30,12 +30,16 @@ def make_parser(cmd):
     sp.add_argument('-p', '--public', default=False, action='store_true',
                     help="Map the database port to the host")
     sp.add_argument('-m', '--message', help="Add a message to the record for this container cluster")
-    sp.add_argument('-g', '--groupname', help="Set the username / group name, rather than selecting one randomly")
+    sp.add_argument('-H', '--host', help="Hostname. Start with '.' to prepend the groupname ")
+    sp.add_argument('groupname', nargs=1, type=str, help='Name of group to initialize')
+
 
     sp = asp.add_parser('shell', help='Run a shell in a container')
     sp.set_defaults(subcommand='shell')
     sp.add_argument('-k', '--kill', default=False, action='store_true',
                     help="Kill a running shell before starting a new one")
+
+    sp.add_argument('groupname', nargs=1, type=str, help='Name of group creat shell for')
     sp.add_argument('docker_command', nargs='*', type=str, help='Command to run, instead of bash')
 
     sp = asp.add_parser('tunnel', help='Run an ssh tunnel to the current database container')
@@ -43,6 +47,7 @@ def make_parser(cmd):
     sp.add_argument('-i', '--identity', help="Specify an identity file for loggin into the docker host")
     sp.add_argument('-k', '--kill', default=False, action='store_true',
                     help="Kill a running tunnel before starting a new one")
+    sp.add_argument('groupname', nargs=1, type=str, help='Name of group creat shell for')
     sp.add_argument('ssh_key_file', type=str, nargs=1, help='Path to an ssh key file')
 
     sp = asp.add_parser('list', help='List docker entries in the accounts file')
@@ -51,13 +56,12 @@ def make_parser(cmd):
     sp = asp.add_parser('kill', help='Destroy all of the containers associated with a username')
     sp.set_defaults(subcommand='kill')
     sp.add_argument('groupname', type=str, nargs='*', help='Group name of set of containers')
+    sp.add_argument('-u', '--ui', default=False, action='store_true',
+                    help="Kill only the ui")
+    sp.add_argument('-v', '--volumes', default=False, action='store_true',
+                    help="Also destroy the volumes container, which is preserved by default")
 
-    sp = asp.add_parser('ui', help='Run the user interface container')
-    sp.set_defaults(subcommand='ui')
-    sp.add_argument('-k', '--kill', default=False, action='store_true',
-                    help="Kill a running shell before starting a new one")
-    sp.add_argument('-s', '--shell', default=False, action='store_true',
-                    help="Run a shell instead")
+
 
     sp = asp.add_parser('ckan', help='Run the ckan container')
     sp.set_defaults(subcommand='ckan')
@@ -71,7 +75,7 @@ def make_parser(cmd):
                     help="Display the database DSN")
     sp.add_argument('groupname', type=str, nargs=1, help='Group name of set of containers')
 
-    sp = asp.add_parser('build', help='BUild a docker container')
+    sp = asp.add_parser('build', help='Build a docker container')
     sp.set_defaults(subcommand='build')
 
     sp.add_argument('-C', '--clean', default=False, action='store_true',
@@ -97,37 +101,13 @@ def make_parser(cmd):
     sp.add_argument('-c', '--ckan', default=False, action='store_true',
                     help='Build the CKAN image, civicknowledge/ckan')
 
-    #
-    # Run
-    #
 
-    command_p = asp.add_parser('run', help='Run bambry commands in a docker container')
-    command_p.set_defaults(subcommand='run')
-    command_p.add_argument('-i', '--id', help='Specify the id of the bundle to run')
-    command_p.add_argument('-I', '--docker_id', default=False, action='store_true',
-                           help='Print the id of the running container')
-    command_p.add_argument('-c', '--container', help='Use a specific container id')
-    command_p.add_argument('-k', '--kill', default=False, action='store_true',
-                           help='Kill the running container')
-    command_p.add_argument('-n', '--docker_name', default=False, action='store_true',
-                           help='Print the name of the running container')
-    command_p.add_argument('-l', '--logs', default=False, action='store_true',
-                           help='Get the logs (stdout) from a runnings container')
-    command_p.add_argument('-s', '--shell', default=False, action='store_true',
-                           help='Run a shell on the currently running container')
-    command_p.add_argument('-S', '--stats', default=False, action='store_true',
-                           help='Report stats from the currently running container')
-    command_p.add_argument('-v', '--version', default=False, action='store_true',
-                           help='Select a docker version that is the same as this Ambry installation')
-    command_p.add_argument('-m', '--multi', default=False, action='store_true',
-                        help='Run in multiprocessing mode')
-    command_p.add_argument('-L', '--limited-run', default=False, action='store_true',
-                           help='Run a limited number of rows, for testing')
-    command_p.add_argument('-p', '--processes', type=int,
-                    help='Number of multiprocessing processors. implies -m')
+    sp = asp.add_parser('import', help='Import basic information about a remote from docker')
+    sp.set_defaults(subcommand='import')
 
-    command_p.add_argument('args', nargs='*', type=str, help='additional arguments')
-
+    sp = asp.add_parser('sync', help='Send  remotes and accounts to a remote')
+    sp.set_defaults(subcommand='sync')
+    sp.add_argument('groupname', nargs=1, type=str, help='Name of group to initialize')
 
 def run_command(args, rc):
     from ambry.library import new_library
@@ -152,88 +132,14 @@ def docker_client():
 
     return client
 
-def get_docker_file(rc):
-    """Get the path for a .ambry-docker file, parallel to the .ambry.yaml file"""
-    from os.path import dirname, join, exists
-    from ambry.util import AttrDict
 
-    loaded = rc['loaded'][0]
-
-    path = join(dirname(loaded),'docker.yaml')
-
-    if not exists(path):
-        with open(path, 'wb') as f:
-            d = AttrDict()
-            d['foo'] = dict(name='bar')
-            d.dump(f)
-
-    return path
-
-def get_df_entry(rc,name):
-    from ambry.util import AttrDict
-
-    d = AttrDict.from_yaml(get_docker_file(rc))
-
-    return d[name]
-
-def set_df_entry(rc, name, entry):
-    from ambry.util import AttrDict
-    import os.path
-
-    if os.path.exists(get_docker_file(rc)):
-        try:
-            d = AttrDict.from_yaml(get_docker_file(rc))
-        except TypeError:
-            # Empty file, I guess.
-            d = AttrDict()
-    else:
-        d = AttrDict()
-
-    d[name] = entry
-
-    with open(get_docker_file(rc), 'wb') as f:
-        d.dump(f)
-
-def remove_df_entry(rc, name):
-    from ambry.util import AttrDict
-    import os.path
-
-    if os.path.exists(get_docker_file(rc)):
-        d = AttrDict.from_yaml(get_docker_file(rc))
-    else:
-        d = AttrDict()
-
-    if name in d:
-        del d[name]
-
-    with open(get_docker_file(rc), 'wb') as f:
-        d.dump(f)
-
-def docker_init(args, l, rc):
-    """Initialize a new docker volumes and database container, and report the database DSNs"""
-
+def _docker_mk_volume(rc, client, remote):
     from docker.errors import NotFound, NullResource
-    import string
-    import random
-    from ambry.util import parse_url_to_dict
-    from docker.utils import kwargs_from_env
-    from ambry.cli import fatal
-
-    client = docker_client()
-
-    def id_generator(size=12, chars=string.ascii_lowercase + string.digits):
-        return ''.join(random.choice(chars) for _ in range(size))
-
-    # Check if the postgres image exists.
-
-    postgres_image = 'civicknowledge/postgres'
-
-    try:
-        inspect = client.inspect_image(postgres_image)
-    except NotFound:
-        fatal(('Database image {i} not in docker. Run \'python setup.py docker -D\' or '
-               ' \'docker pull {i}\'').format(i=postgres_image))
-
+    from ambry.orm.exc import NotFoundError
+    import os
+    #
+    # Create the volume container
+    #
     volumes_image = 'civicknowledge/volumes'
 
     try:
@@ -242,76 +148,60 @@ def docker_init(args, l, rc):
         prt('Pulling image for volumns container: {}'.format(volumes_image))
         client.pull(volumes_image)
 
-
-    # Assume that the database host IP is also the docker host IP. This usually be true
-    # externally to the docker host, and internally, we'll alter the host:port to
-    # 'db' anyway.
-    db_host_ip = parse_url_to_dict(kwargs_from_env()['base_url'])['netloc'].split(':',1)[0]
-
     try:
-        d = parse_url_to_dict(l.database.dsn)
-    except AttributeError:
-        d = {'query':''}
-
-    if 'docker' not in d['query'] or args.new:
-        groupname = id_generator()
-        password = id_generator()
-        database = groupname
-    else:
-        groupname = d['username']
-        password = d['password']
-        database = d['path'].strip('/')
-
-    # Override the username if one was provided
-    if args.groupname:
-        groupname =  database = args.groupname
-
-    volumes_c = 'ambry_volumes_{}'.format(groupname)
-    db_c = 'ambry_db_{}'.format(groupname)
-
-    #
-    # Create the volume container
-    #
-
-    try:
-        inspect = client.inspect_container(volumes_c)
-        prt('Found volume container {}'.format(volumes_c))
+        inspect = client.inspect_container(remote.vol_name)
+        prt('Found volume container {}'.format(remote.vol_name))
     except NotFound:
-        prt('Creating volume container {}'.format(volumes_c))
+        prt('Creating volume container {}'.format(remote.vol_name))
 
         r = client.create_container(
-            name=volumes_c,
+            name=remote.vol_name,
             image=volumes_image,
             labels={
-                'civick.ambry.group': groupname,
-                'civick.ambry.message': args.message,
+                'civick.ambry.group': remote.short_name,
+                'civick.ambry.message': remote.message,
                 'civick.ambry.role': 'volumes'
             },
             volumes=['/var/ambry', '/var/backups'],
-            host_config = client.create_host_config()
+            host_config=client.create_host_config()
         )
 
+        inspect = client.inspect_container(remote.vol_name)
+
+    return inspect['Id']
+
+def _docker_mk_db(rc, client, remote, public_port = False):
+    from docker.errors import NotFound, NullResource
+    from ambry.orm.exc import NotFoundError
+    import os
     #
     # Create the database container
     #
 
-    try:
-        inspect = client.inspect_container(db_c)
-        prt('Found db container {}'.format(db_c))
-    except NotFound:
-        prt('Creating db container {}'.format(db_c))
+    postgres_image = 'civicknowledge/postgres'
 
-        if args.public:
+    try:
+        inspect = client.inspect_image(postgres_image)
+    except NotFound:
+        fatal(('Database image {i} not in docker. Run "ambry docker build -d" ').format(i=postgres_image))
+
+    try:
+        inspect = client.inspect_container(remote.db_name)
+        prt('Found db container {}'.format(remote.db_name))
+    except NotFound:
+        prt('Creating db container {}'.format(remote.db_name))
+
+        if public_port:
             port_bindings = {5432: ('0.0.0.0',)}
         else:
             port_bindings = None
 
         kwargs = dict(
-            name=db_c,
+            name=remote.db_name,
             image=postgres_image,
             labels={
-                'civick.ambry.group': groupname,
-                'civick.ambry.message': args.message,
+                'civick.ambry.group': remote.short_name,
+                'civick.ambry.message': remote.message,
                 'civick.ambry.role': 'db'
 
             },
@@ -322,13 +212,13 @@ def docker_init(args, l, rc):
                 'BACKUP_ENABLED': 'true',
                 'BACKUP_FREQUENCY': 'daily',
                 'BACKUP_EMAIL': 'eric@busboom.org',
-                'USER': groupname,
-                'PASSWORD': password,
-                'SCHEMA': database,
-                'POSTGIS': 'true'
+                'USER': remote.short_name,
+                'PASSWORD': remote.tr_db_password,
+                'SCHEMA': remote.short_name,
+                'POSTGIS': 'true',
             },
             host_config=client.create_host_config(
-                volumes_from=[volumes_c],
+                volumes_from=[remote.vol_name],
                 port_bindings=port_bindings
             )
         )
@@ -340,36 +230,173 @@ def docker_init(args, l, rc):
         inspect = client.inspect_container(r['Id'])
 
     try:
-        port =  inspect['NetworkSettings']['Ports']['5432/tcp'][0]['HostPort']
+        port = inspect['NetworkSettings']['Ports']['5432/tcp'][0]['HostPort']
     except (TypeError, KeyError):
         port = None
 
     if port:
         dsn = 'postgres://{username}:{password}@{host}:{port}/{database}?docker'.format(
-                username=groupname, password=password, database=database, host=db_host_ip, port=port)
+            username=groupname, password=password, database=database, host=db_host_ip, port=port)
 
     else:
         dsn = 'postgres://{username}:{password}@{host}:{port}/{database}?docker'.format(
-            username=groupname, password=password, database=database, host='localhost', port='5432')
+            username=remote.short_name, password=remote.tr_db_password, database=remote.short_name,
+            host='localhost', port='5432')
+
+
+    remote.db_dsn = dsn
+
+    return inspect['Id']
+
+
+def _docker_mk_ui(rc, client,remote, hostname):
+    from docker.errors import NotFound, NullResource
+    from ambry.orm.exc import NotFoundError
+    import os
+
+    image = 'civicknowledge/ambryui'
+
+    check_ambry_image(client, image)
+
+    try:
+        inspect = client.inspect_container(remote.ui_name)
+        prt('Found ui container {}'.format(remote.ui_name))
+    except NotFound:
+        prt('Creating ui container {}'.format(remote.ui_name))
+
+        envs = remote_envs(rc, remote)
+        envs['VIRTUAL_HOST'] = hostname
+        envs['AMBRY_API_TOKEN'] = remote.api_token
+
+        if remote:
+            envs['AMBRY_UI_TITLE'] = remote.message
+
+        kwargs = dict(
+            name=remote.ui_name,
+            image=image,
+            labels={
+                'civick.ambry.group': remote.short_name,
+                'civick.ambry.role': 'ui',
+                'civick.ambry.virt_host': envs.get('VIRTUAL_HOST')
+            },
+            detach=False,
+            tty=True,
+            stdin_open=True,
+            environment=envs,
+            host_config=client.create_host_config(
+                volumes_from=[remote.vol_name],
+                links={
+                    remote.db_name: 'db',
+                },
+                port_bindings={80: ('0.0.0.0',)}
+            )
+        )
+
+        r = client.create_container(**kwargs)
+
+        while True:
+            try:
+                inspect = client.inspect_container(r['Id'])
+                break
+            except NotFound:
+                prt('Waiting for container to be created')
+
+        client.start(r['Id'])
+
+        inspect = client.inspect_container(r['Id'])
+
+        try:
+            port = inspect['NetworkSettings']['Ports']['80/tcp'][0]['HostPort']
+        except:
+            port = None
+
+        if envs.get('VIRTUAL_HOST'):
+            remote.url = 'http://{}'.format(envs.get('VIRTUAL_HOST'))
+        else:
+            remote.url = 'http://{}{}'.format(remote.docker_url, ':{}'.format(port) if port else '')
+
+    inspect = client.inspect_container(remote.ui_name)
+
+    return inspect['Id']
+
+
+def docker_init(args, l, rc):
+    """Initialize a new docker volumes and database container, and report the database DSNs"""
+
+    from docker.errors import NotFound, NullResource
+    import string
+    import random
+    from ambry.util import parse_url_to_dict, random_string, set_url_part
+    from docker.utils import kwargs_from_env
+    from ambry.cli import fatal
+
+    client = docker_client()
+
+    def id_generator(size=12, chars=string.ascii_lowercase + string.digits):
+        return ''.join(random.choice(chars) for _ in range(size))
+
+    groupname = args.groupname[0]
+
+    remote =  l.find_or_new_remote(groupname, service='docker')
+    remote.message = args.message
+    remote.docker_url = client.base_url
+    if not remote.api_token:
+        remote.api_token = random_string(16)
+
+    if remote.db_dsn:
+        d = parse_url_to_dict(remote.db_dsn)
+        remote.tr_db_password = d['password']
+        assert d['username'] == groupname
+
+    else:
+
+        remote.tr_db_password = id_generator()
+        remote.vol_name = 'ambry_volumes_{}'.format(groupname)
+        remote.db_name = 'ambry_db_{}'.format(groupname)
+        remote.ui_name =  'ambry_ui_{}'.format(remote.short_name)
+
+    remote.message = args.message
+
+    _docker_mk_volume(rc, client,remote)
+    _docker_mk_db(rc, client,remote, public_port=args.public)
+    ui_id = _docker_mk_ui(rc, client,remote, hostname=make_hostname(remote.short_name, args, rc))
+
+    # Create an account entry for the api token
+    if remote.url:
+        d = parse_url_to_dict(remote.url)
+        acct = l.find_or_new_account(remote.url, major_type='ambry')
+        acct.encrypt_secret(remote.api_token)
+
+    # Create a local user account entry for accessing the API
+    account = l.find_or_new_account(set_url_part(remote.url, username='api'), major_type='api')
+    if not account.access_key:
+        account.url = remote.url
+        account.access_key = 'api'
+        secret = random_string(20)
+        account.encrypt_secret(secret)
+    else:
+        secret = account.decrypt_secret()
+
+    # Create the corresponding account in the UI's database
+    ex = client.exec_create(container=ui_id,cmd=['ambry', 'accounts', 'add', '-v', 'user'
+                            '-a', 'api', '-s', secret, 'api'])
+
+    client.exec_start(ex['Id'])
+
+
+    l.commit()
+
+    prt('UI Container')
+    prt('   Name: {}'.format(remote.ui_name))
+    prt('   URL:  {} '.format(remote.url))
+
+    if l and l.database.dsn != remote.db_dsn:
+        prt("Set the library.database configuration to this DSN:")
+        prt("    " + remote.db_dsn)
+    if remote.db_host == 'localhost':
         warn("No public port; you'll need to set up a tunnel for external access")
 
-    if l and l.database.dsn != dsn:
-        prt("Set the library.database configuration to this DSN:")
-        prt(dsn)
 
-
-    set_df_entry(rc, groupname, dict(
-        username=groupname,
-        password=password,
-        database=database,
-        db_port=int(port) if port else None,
-        host=db_host_ip,
-        docker_url=client.base_url,
-        volumes_name=volumes_c,
-        db_name=db_c,
-        dsn=dsn,
-        message=args.message
-    ))
 
 def check_ambry_image(client, image):
     from docker.errors import NotFound, NullResource
@@ -385,6 +412,10 @@ def docker_shell(args, l, rc):
     from docker.errors import NotFound, NullResource
     import os
 
+    client = docker_client()
+    remote = l.remote(args.groupname[0])
+
+
     if args.docker_command:
 
         if args.docker_command[0] not in ('bambry', 'ambry'):
@@ -394,11 +425,8 @@ def docker_shell(args, l, rc):
     else:
         docker_command = None
 
-    client = docker_client()
 
-    username, dsn, volumes_c, db_c, envs = get_docker_links(rc)
-
-    shell_name = 'ambry_shell_{}'.format(username)
+    shell_name = 'ambry_shell_{}'.format(remote.short_name)
 
     # Check if the  image exists.
 
@@ -426,17 +454,17 @@ def docker_shell(args, l, rc):
             name=shell_name,
             image=image,
             labels={
-                'civick.ambry.group': username,
+                'civick.ambry.group': remote.short_name,
                 'civick.ambry.role': 'shell'
             },
             detach=False,
             tty=True,
             stdin_open=True,
-            environment=envs,
+            environment=remote_envs(rc,remote),
             host_config=client.create_host_config(
-                volumes_from=[volumes_c],
+                volumes_from=[remote.vol_name],
                 links={
-                    db_c: 'db'
+                    remote.db_name: 'db'
                 }
             ),
             command= docker_command or '/bin/bash'
@@ -483,10 +511,9 @@ def docker_tunnel(args, l, rc):
         fatal('The tunnel argument must be the path to a public ssh key')
 
     client = docker_client()
+    remote = l.remote(args.groupname[0])
 
-    groupname, dsn, volumes_c, db_c, envs = get_docker_links(rc)
-
-    shell_name = 'ambry_tunnel_{}'.format(groupname)
+    shell_name = 'ambry_tunnel_{}'.format(remote.short_name)
 
     # Check if the  image exists.
 
@@ -513,16 +540,16 @@ def docker_tunnel(args, l, rc):
         name=shell_name,
         image=image,
         labels={
-            'civick.ambry.group': groupname,
+            'civick.ambry.group': remote.short_name,
             'civick.ambry.role': 'tunnel'
         },
         detach=False,
         tty=False,
         stdin_open=False,
-        environment=envs,
+        environment=remote_envs(rc, remote),
         host_config=client.create_host_config(
             links={
-                db_c: 'db'
+                remote.db_name: 'db'
             },
             port_bindings={22: ('0.0.0.0',)}
         ),
@@ -576,130 +603,59 @@ def start_tunnel(host, port):
 def docker_kill(args, l, rc):
     from operator import itemgetter
     from docker.utils import kwargs_from_env
+    from ambry.orm.exc import  NotFoundError
 
     client = docker_client()
+
+    remove_remote = False if args.ui else True
 
     for groupname in args.groupname:
 
         for c in client.containers(all=True):
             name = c['Names'][0].strip('/')
             if groupname in name:
-                prt("Removing: {}".format(name))
-                client.remove_container(container=c['Id'], v=True, force=True)
+
                 try:
-                    remove_df_entry(rc, groupname)
+                    role = c['Labels'].get('civick.ambry.role')
                 except KeyError:
-                    pass
+                    role = 'uknown'
+
+                if args.ui and role != 'ui':
+                    continue
+
+                if role == 'volumes' and not args.volumes:
+                    prt("Skipping {}; -v was not specified".format(name))
+                    continue
+
+                prt("Removing: {} ({})".format(name, role))
+
+                client.remove_container(container=c['Id'], v=True, force=True)
+
+                if remove_remote:
+                    try:
+                        l.delete_remote(groupname)
+                    except NotFoundError:
+                        pass
 
 
-def docker_ui(args, l, rc, attach=True):
-    """Run a shell in an Ambry builder image, on the current docker host"""
 
-    from docker.errors import NotFound, NullResource
-    import os
+def make_hostname(groupname, args, rc):
 
-    client = docker_client()
-
-    groupname, dsn, volumes_c, db_c, envs = get_docker_links(rc)
-
-    shell_name = 'ambry_ui_{}'.format(groupname)
-
-    # Check if the  image exists.
-
-    image = 'civicknowledge/ambryui'
-
-    check_ambry_image(client, image)
-
-    try:
-        inspect = client.inspect_container(shell_name)
-        running = inspect['State']['Running']
-        exists = True
-    except NotFound as e:
-        running = False
-        exists = False
-
-    # If no one is using is, clear it out.
-    if exists and (not running or args.kill):
-        prt('Killing container {}'.format(shell_name))
-        client.remove_container(shell_name, force = True)
-        exists = False
-        running = False
-
-    if not running:
-
-        vh_root = rc.get('docker', {}).get('ui_domain', None)
-        if vh_root:
-            envs['VIRTUAL_HOST'] = '{}.{}'.format(groupname, vh_root)
-
-        try:
-            df = get_df_entry(rc, groupname)
-            if df.get('message'):
-                envs['AMBRY_UI_TITLE'] = df.get('message')
-        except KeyError:
-            pass
-
-        kwargs = dict(
-            name=shell_name,
-            image=image,
-            labels={
-                'civick.ambry.group': groupname,
-                'civick.ambry.role': 'ui',
-                'civick.ambry.virt_host': envs.get('VIRTUAL_HOST')
-            },
-            detach=False,
-            tty=True,
-            stdin_open=True,
-            environment=envs,
-            host_config=client.create_host_config(
-                volumes_from=[volumes_c],
-                links={
-                    db_c: 'db',
-                },
-                port_bindings={80: ('0.0.0.0',)}
-            )
-        )
-
-        if args.shell:
-            kwargs['command'] = '/bin/bash' # Just to turn off the call to  Gunicorn
-
-        r = client.create_container(**kwargs)
-
-        while True:
-            try:
-                inspect = client.inspect_container(r['Id'])
-                break
-            except NotFound:
-                prt('Waiting for container to be created')
-
-        client.start(r['Id'])
-
-        inspect = client.inspect_container(r['Id'])
-
-        try:
-            port = inspect['NetworkSettings']['Ports']['80/tcp'][0]['HostPort']
-        except:
-            port = None
-            print inspect['NetworkSettings']['Ports']
-
-        prt('Starting ui container')
-        prt('   Name {}'.format(shell_name))
-        prt('   Virtual host http://{} '.format(envs.get('VIRTUAL_HOST')))
-        prt('   Host port: {}'.format(port))
-
-    else:
-        prt('Container {} is already running'.format(shell_name))
-        inspect = client.inspect_container(shell_name)
-
-    if args.shell:
-        inspect = client.inspect_container(shell_name)
-        running = inspect['State']['Running']
-
-        if running:
-            prt('Starting {}'.format(inspect['Id']))
-            os.execlp('docker', 'docker', 'start', '-a', '-i', inspect['Id'])
+    if args.host:
+        if args.host.startswith('.'):
+            host = groupname+args.host
         else:
-            prt("Exec new shell on running container")
-            os.execlp('docker', 'docker', 'exec', '-t', '-i', inspect['Id'], '/bin/bash')
+            host = args.host
+    else:
+
+        config_vh_root = rc.get('docker', {}).get('ui_domain', None)
+        if config_vh_root:
+            host = '{}.{}'.format(groupname, config_vh_root)
+        else:
+            host = None
+
+    return host
+
 
 def docker_ckan(args, l, rc, attach=True):
     """Run a shell in an Ambry builder image, on the current docker host"""
@@ -710,7 +666,7 @@ def docker_ckan(args, l, rc, attach=True):
 
     client = docker_client()
 
-    username, dsn, volumes_c, db_c, envs = get_docker_links(rc)
+    username, dsn, volumes_c, db_c, envs = get_docker_links(args, l, rc)
 
     container_name = 'ambry_ckan_{}'.format(username)
 
@@ -736,6 +692,8 @@ def docker_ckan(args, l, rc, attach=True):
         running = False
 
     if not running:
+
+        envs = remote_envs(rc, remote)
 
         vh_root = rc.get('docker', {}).get('ui_domain', None)
         if vh_root:
@@ -800,6 +758,7 @@ def docker_list(args, l, rc):
     from docker.utils import kwargs_from_env
     from collections import defaultdict
     from ambry.util import parse_url_to_dict
+    from ambry.orm.exc import NotFoundError
 
     client = docker_client()
     prt("Listing Ambry containers for : {}",client.base_url)
@@ -835,6 +794,7 @@ def docker_list(args, l, rc):
                 host = ports['IP'] if ports.get('IP') and ports.get('IP') != '0.0.0.0' else host
                 entries[group][role]['ports'] = "{}:{}".format(host, ports['PublicPort'])
 
+
     rows = []
     headers = 'Group Role Name Ports Notes'.split()
 
@@ -849,18 +809,19 @@ def docker_list(args, l, rc):
         rows.append([group, None, None, None, e['message'] ])
 
         try:
-            df = get_df_entry(rc, group)
-        except KeyError:
-            df = {}
+            remote = l.remote(key).dict
+        except NotFoundError:
+            remote  = {}
 
         for role in sorted([k for k,v in e.items() if isinstance(v, dict)]):
             m = e[role]
             if role in ('ui', 'ckan'):
                 message = m['vhost']
-            elif role == 'db' and df:
-                message = df.get('dsn')
+            elif role == 'db' and remote:
+                message = remote.get('db_dsn')
             else:
                 message = None
+
             rows.append(['', role, m['name'], m['ports'], message])
 
 
@@ -874,23 +835,19 @@ def docker_info(args, l, rc):
 
     if args.dsn:
         try:
-            df = get_df_entry(rc, groupname)
-            prt(df['dsn'])
+            remote = l.remote(groupname)
+            prt(remote.db_dsn)
         except KeyError:
-            # Meant for use in shell scripts, so jsut reutrn an error return code
+            # Meant for use in shell scripts, so just return an error return code
             import sys
             sys.exit(1)
 
 
-def get_docker_links(rc):
+
+def remote_envs(rc, remote):
     from ambry.util import parse_url_to_dict, unparse_url_dict
-    from ambry.library.filesystem import LibraryFilesystem
 
-    fs = LibraryFilesystem(rc)
-
-    dsn = fs.database_dsn
-
-    d = parse_url_to_dict(dsn)
+    d = parse_url_to_dict(remote.db_dsn)
 
     if not 'docker' in d['query']:
         fatal("Database '{}' doesn't look like a docker database DSN; it should have 'docker' at the end"
@@ -901,17 +858,11 @@ def get_docker_links(rc):
     d['port'] = None
     dsn = unparse_url_dict(d)
 
-    # The username is the unique id part of all of the docker containers, so we
-    # can construct the names of the database and volumes container from it.
-    groupname = d['username']
-    volumes_c = 'ambry_volumes_{}'.format(groupname)
-    db_c = 'ambry_db_{}'.format(groupname)
-
     envs = {}
     envs['AMBRY_DB'] = dsn
     envs['AMBRY_ACCOUNT_PASSWORD'] = (rc.accounts.get('password'))
 
-    return groupname, dsn, volumes_c, db_c, envs
+    return envs
 
 def docker_build(args, l, rc):
     from ambry_admin import docker as dckr_dir
@@ -1026,177 +977,102 @@ def docker_build(args, l, rc):
         d_build('ckan')
 
 
-def docker_run(args, l, rc):
-    import os
-    import sys
-    from docker.errors import NotFound, NullResource
-    from ambry.cli.bundle import using_bundle
 
-    username, dsn, volumes_c, db_c, envs = get_docker_links(rc)
+def _split_envs(env_strings):
+    envs = {}
 
-    b = using_bundle(args, l, print_loc=False)
-    client = docker_client()
+    for s in env_strings:
+        k,v = s.split('=')
+        envs[k.lower()] = v
 
-    if args.container:
-        last_container = args.container
+    return envs
+
+def _make_dsn(ip, port, envs):
+    if port:
+        dsn = 'postgres://{username}:{password}@{host}:{port}/{database}?docker'.format(
+            username=envs['user'], password=envs['password'], database=envs['user'], host=ip, port=port)
+
     else:
-        try:
-            last_container = b.buildstate.docker.last_container
-        except KeyError:
-            last_container = None
+        dsn = 'postgres://{username}:{password}@{host}:{port}/{database}?docker'.format(
+            username=envs['user'], password=envs['password'], database=envs['user'], host='localhost', port='5432')
 
-    try:
-        inspect = client.inspect_container(last_container)
+    return dsn
 
-    except NotFound:
-        # OK; the last_container is dead
-        b.buildstate.docker.last_container = None
-        b.buildstate.commit()
-        inspect  = None
-    except NullResource:
-        inspect = None
-        pass  # OK; no container specified in the last_container value
+def docker_import(args, l, rc):
+    from operator import itemgetter
+    from docker.utils import kwargs_from_env
+    from collections import defaultdict
+    from ambry.util import parse_url_to_dict
+    from ambry.orm.exc import NotFoundError
 
-    #
-    # Command args
-    #
+    client = docker_client()
+    prt("Listing Ambry containers for : {}",client.base_url)
 
-    bambry_cmd = ' '.join(args.args).strip()
+    host = parse_url_to_dict(client.base_url)['hostname']
 
-    def run_container(bambry_cmd=None):
-        """Run a new docker container"""
+    entries = defaultdict(dict)
+
+    for c in client.containers(all=True):
+        if 'civick.ambry.role' in c['Labels']:
+            group = c['Labels'].get('civick.ambry.group')
+            role = c['Labels'].get('civick.ambry.role')
+            entries[group]['group'] = group
+
+            if role == 'db':
+                entries[group]['message'] = c['Labels'].get('civick.ambry.message')
 
 
-        if bambry_cmd:
+            vhost = c['Labels'].get('civick.ambry.virt_host')
 
-            if last_container:
-                fatal("Bundle already has a running container: {}\n{}".format(inspect['Name'], inspect['Id']))
+            entries[group][role] = {'name': c['Names'][0],
+                                    'role': role,
+                                    'message': c['Labels'].get('civick.ambry.message'),
+                                    'vhost': "http://{}".format(vhost) if vhost else None,
+                                    'id': c['Id'],
+                                    'ports': None}
 
-            bambry_cmd_args = []
+            if c['Ports'] and c['Ports'][0].get('PublicPort'):
+                ports = c['Ports'][0]
+                host = ports['IP'] if ports.get('IP') and ports.get('IP') != '0.0.0.0' else host
+                entries[group][role]['ports'] = "{}:{}".format(host, ports['PublicPort'])
 
-            if args.limited_run:
-                bambry_cmd_args.append('-L')
+    for k, e in entries.items():
 
-            if args.multi:
-                bambry_cmd_args.append('-m')
+        remote = l.find_or_new_remote(k, service='docker')
+        remote.docker_url = client.base_url
 
-            if args.processes:
-                bambry_cmd_args.append('-p' + str(args.processes))
+        for role in sorted([k for k,v in e.items() if isinstance(v, dict)]):
+            m = e[role]
 
-            envs['AMBRY_COMMAND'] = 'bambry -i {} {} {}'.format(
-                                    b.identity.vid, ' '.join(bambry_cmd_args), bambry_cmd)
+            import json
 
-            detach = True
-        else:
-            detach = False
+            inspect = client.inspect_container(m['name'])
 
-        if args.limited_run:
-            envs['AMBRY_LIMITED_RUN'] = '1'
+            if role == 'db':
 
-        try:
-            image_tag = rc.docker.ambry_image
-        except KeyError:
-            image_tag = 'civicknowledge/ambry'
+                try:
+                    port = inspect['NetworkSettings']['Ports']['5432/tcp'][0]['HostPort']
+                except (TypeError, KeyError):
+                    port = None
 
-        if args.version:
-            import ambry._meta
-            image = '{}:{}'.format(image_tag,ambry._meta.__version__)
-        else:
-            image = image_tag
+                remote.db_name = m['name']
+                envs = _split_envs(inspect['Config']['Env'])
 
-        try:
-            volumes_from = [rc.docker.volumes_from]
-        except KeyError:
-            volumes_from = []
+                remote.db_dsn =  _make_dsn(host, port, envs)
 
-        volumes_from.append(volumes_c)
+                #print json.dumps(inspect, indent=4)
+            elif role == 'ui':
+                remote.ui_name = m['name']
+                envs = _split_envs(inspect['Config']['Env'])
+                remote.api_token = envs['ambry_api_token']
+                remote.url = envs['virtual_host']
+            elif role == 'volumes':
+                remote.vol_name = m['name']
 
-        host_config = client.create_host_config(
-            volumes_from=volumes_from,
-            links={
-                db_c:'db'
-            }
-        )
 
-        kwargs = dict(
-            image=image,
-            detach=detach,
-            tty=not detach,
-            stdin_open=not detach,
-            environment=envs,
-            host_config=host_config
-        )
+            prt("Added {}".format(m['name']))
 
-        prt('Starting container with image {} '.format(image))
+    l.commit()
 
-        r = client.create_container(**kwargs)
 
-        client.start(r['Id'])
-
-        return r['Id']
-
-    if args.kill:
-
-        if last_container:
-
-            if inspect and inspect['State']['Running']:
-                client.kill(last_container)
-
-            client.remove_container(last_container)
-
-            prt('Killed {}', last_container)
-
-            b.buildstate.docker.last_container = None
-            b.buildstate.commit()
-            last_container = None
-        else:
-            warn('No container to kill')
-
-    if bambry_cmd:
-        # If there is command, run the container first so the subsequent arguments can operate on it
-        last_container = run_container(bambry_cmd)
-        b.buildstate.docker.last_container = last_container
-        b.buildstate.commit()
-
-    if args.docker_id:
-        if last_container:
-            prt(last_container)
-
-        return
-
-    elif args.docker_name:
-
-        if last_container:
-            prt(inspect['Name'])
-
-        return
-
-    elif args.logs:
-
-        if last_container:
-            for line in client.logs(last_container, stream=True):
-                print line,
-        else:
-            fatal('No running container')
-
-    elif args.stats:
-
-        for s in client.stats(last_container, decode=True):
-
-            sys.stderr.write("\x1b[2J\x1b[H")
-            prt_no_format(s.keys())
-            prt_no_format(s['memory_stats'])
-            prt_no_format(s['cpu_stats'])
-
-    elif args.shell:
-        # Run a shell on a container
-        # This is using execlp rather than the docker API b/c we want to entirely replace the
-        # current process to get a good tty.
-        os.execlp('docker', 'docker', 'exec', '-t','-i', last_container, '/bin/bash')
-
-    elif not bambry_cmd and not args.kill:
-        # Run a container and then attach to it.
-        cid = run_container()
-
-        os.execlp('docker', 'docker', 'attach', cid)
 

@@ -37,7 +37,11 @@ def make_parser(cmd):
 
     sp = asp.add_parser('info', help="Info about remorte or a bundle on a remote")
     sp.set_defaults(subcommand=info)
-    sp.add_argument('bundle_ref', nargs=1, type=str, help='Reference to a bundle')
+    sp.add_argument('bundle_ref', nargs='?', type=str, help='Reference to a bundle')
+
+    sp = asp.add_parser('syncremote', help="Send remote and account information")
+    sp.set_defaults(subcommand=syncremote)
+    config_p.add_argument('remotes', nargs='*', type=str, help='Names of remotes to send')
 
 def run_command(args, rc):
     from ambry.library import new_library
@@ -50,7 +54,6 @@ def run_command(args, rc):
         l = None
 
     args.subcommand(args, l, rc) # Note the calls to sp.set_defaults(subcommand=...)
-
 
 def get_remote(l, name):
     from argparse import Namespace
@@ -123,3 +126,6 @@ def info(args, l, rc):
 
         except NotFoundError:
             fatal("Failed to find bundle for ref: '{}' ".format(args.bundle_ref[0]))
+
+def syncremote(args, l, rc):
+    pass

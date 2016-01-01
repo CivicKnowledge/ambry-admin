@@ -7,7 +7,6 @@ MAINTAINER Eric Busboom "eric@civicknowledge.org"
 
 ENV AMBRY_IS_REMOTE 1
 
-
 RUN pip install git+https://github.com/CivicKnowledge/ambry_sources.git && \
     pip install git+https://github.com/CivicKnowledge/geoid.git
 
@@ -17,9 +16,14 @@ RUN cd /tmp/ambry-* && cp -r * /opt/ambry/ # The context tar file includes the v
 
 # The cd ambry-* parts are because we don't know what the file name is; it includes a version number
 RUN python setup.py install
+RUN ambry config install
 
 # Ambry must be installed first
 RUN pip install git+https://github.com/CivicKnowledge/censuslib.git
+
+RUN pip install git+https://github.com/CivicKnowledge/ambry-admin.git
+
+RUN ambry config installcli ambry_admin
 
 WORKDIR /var/ambry
 

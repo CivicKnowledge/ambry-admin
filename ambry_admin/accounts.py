@@ -23,14 +23,22 @@ def make_parser(cmd):
     asp = config_p.add_subparsers(title='Accounts commands', help='Accounts commands')
 
     sp = asp.add_parser('add', help="Add an account")
-    sp.set_defaults(subcommand=add_account) # CHANGE THIS to the function you want executed for this command
-    sp.add_argument('-v', '--service', help="Service type. Usually 'ambry' or 's3' ")
+    sp.set_defaults(subcommand=add_account)
+    sp.add_argument('-v', '--service', required=True, help="Service type. Usually 'ambry' or 's3' or 'api' ")
     sp.add_argument('-a', '--access', help="Access key or username")
     sp.add_argument('-s', '--secret', help="Secret key or password ")
-    sp.add_argument('docker_command', nargs='*', type=str, help='Command to run, instead of bash')
+    sp.add_argument('-u', '--url', help="Secret key or password ")
+    sp.add_argument('account_id', nargs=1, type=str, help='Account identitifier')
+
+    sp = asp.add_parser('remove', help="Remove an account")
+    sp.set_defaults(subcommand=remove_account)
+    sp.add_argument('account_id', nargs='*', type=str, help='Account identitifier')
+
 
     sp = asp.add_parser('list', help="List the remotes")
     sp.set_defaults(subcommand=list_accounts)
+    sp.add_argument('-v', '--service', help="Only list accounts of this service type")
+    sp.add_argument('-s', '--secret', default=False, action='store_true',  help="Show secrets")
 
     sp = asp.add_parser('sync', help="Synchronize the remotes and accounts from the configuration to the database")
     sp.set_defaults(subcommand=sync)
@@ -50,25 +58,51 @@ def run_command(args, rc):
 
 
 def add_account(args, l, rc):
-    pass
+
+    account = l.find_or_new_account(args.account_id[0])
+    account.major_type = args.service
+    account.access_key = args.access
+    account.encrypt_secret(args.secret)
+    account.url = args.url
+
+    l.commit()
+
+def remove_account(args, l, rc):
+    from ambry.orm.exc import NotFoundError
+
+    for account_name in args.account_id:
+        try:
+            account = l.account(account_name)
+            l.delete_account(account)
+            l.commit()
+        except NotFoundError:
+            warn("No account found for {}".format(account_name))
+
 
 def list_accounts(args, l, rc):
     from tabulate import tabulate
     from ambry.util import drop_empty
+    from ambry.orm import Account
 
     headers = 'Id Service User Access Url'.split()
+
+    if args.secret:
+        headers.append('Secret')
+
     records = []
 
-    for acct in l.accounts.values():
-        records.append(
-            [
-                acct['account_id'],
-                acct['major_type'],
-                acct['user_id'],
-                acct['access_key'],
-                acct['url']
-            ]
-        )
+    for k in l.accounts.keys():
+
+        acct = l.account(k)
+
+        if not args.service or args.service == acct.major_type:
+
+            rec = [acct.account_id,acct.major_type,acct.user_id,acct.access_key,acct.url]
+
+            if args.secret:
+                rec.append(acct.decrypt_secret())
+
+            records.append(rec)
 
     accounts = [v for k, v in l.accounts.items()]
 

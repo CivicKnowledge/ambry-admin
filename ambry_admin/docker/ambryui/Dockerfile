@@ -3,6 +3,7 @@ FROM civicknowledge/ambry
 
 MAINTAINER Eric Busboom "eric@civicknowledge.org"
 
+RUN pip install python-jose
 RUN pip install gunicorn==18 # I can't get 19 to run ...
 
 EXPOSE 80
