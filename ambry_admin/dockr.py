@@ -377,11 +377,13 @@ def docker_init(args, l, rc):
     else:
         secret = account.decrypt_secret()
 
-    # Create the corresponding account in the UI's database
-    ex = client.exec_create(container=ui_id,cmd=['ambry', 'accounts', 'add', '-v', 'user'
-                            '-a', 'api', '-s', secret, 'api'])
+    assert secret
 
-    client.exec_start(ex['Id'])
+    # Create the corresponding account in the UI's database
+    ex = client.exec_create(container=ui_id,
+                            cmd='ambry accounts add -v user -a api -s {} api'.format(secret))
+
+    print client.exec_start(ex['Id'])
 
 
     l.commit()
@@ -806,7 +808,7 @@ def docker_list(args, l, rc):
     for key in sorted(entries.keys()):
         e = entries[key]
         group = e['group']
-        rows.append([group, None, None, None, e['message'] ])
+        rows.append([group, None, None, None, e.get('message') ])
 
         try:
             remote = l.remote(key).dict

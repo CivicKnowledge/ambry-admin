@@ -31,7 +31,6 @@ VOLUME /var/ambry
 
 RUN mkdir -p /var/ambry/source
 
-RUN mkdir /etc/ambry
 RUN cp /opt/ambry/ambry/support/ambry-docker.yaml /etc/ambry/config.yaml
 RUN echo 'source /usr/local/bin/ambry-aliases.sh' >> /root/.bashrc
 

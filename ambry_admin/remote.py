@@ -35,13 +35,17 @@ def make_parser(cmd):
     sp.set_defaults(subcommand=remote_list)
     sp.add_argument('-s', '--summary',default=False, action='store_true', help="Also display summaries and titles")
 
-    sp = asp.add_parser('info', help="Info about remorte or a bundle on a remote")
+    sp = asp.add_parser('info', help="Info about remote or a bundle on a remote")
     sp.set_defaults(subcommand=info)
     sp.add_argument('bundle_ref', nargs='?', type=str, help='Reference to a bundle')
 
     sp = asp.add_parser('syncremote', help="Send remote and account information")
     sp.set_defaults(subcommand=syncremote)
     config_p.add_argument('remotes', nargs='*', type=str, help='Names of remotes to send')
+
+    sp = asp.add_parser('test', help="Call the API's test interface")
+    sp.set_defaults(subcommand=test)
+
 
 def run_command(args, rc):
     from ambry.library import new_library
@@ -129,3 +133,12 @@ def info(args, l, rc):
 
 def syncremote(args, l, rc):
     pass
+
+def test(args, l, rc):
+
+    from ambry.orm.exc import NotFoundError
+
+    remote = get_remote(l, args)
+
+    print remote.api_client.test()
+
