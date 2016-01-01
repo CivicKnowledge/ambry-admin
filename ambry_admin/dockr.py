@@ -266,7 +266,7 @@ def _docker_mk_ui(rc, client,remote, hostname):
 
         envs = remote_envs(rc, remote)
         envs['VIRTUAL_HOST'] = hostname
-        envs['AMBRY_API_TOKEN'] = remote.api_token
+        envs['AMBRY_JWT_SECRET'] = remote.jwt_secret
 
         if remote:
             envs['AMBRY_UI_TITLE'] = remote.message
@@ -340,8 +340,8 @@ def docker_init(args, l, rc):
     remote =  l.find_or_new_remote(groupname, service='docker')
     remote.message = args.message
     remote.docker_url = client.base_url
-    if not remote.api_token:
-        remote.api_token = random_string(16)
+    if not remote.jwt_secret:
+        remote.jwt_secret = random_string(16)
 
     if remote.db_dsn:
         d = parse_url_to_dict(remote.db_dsn)
@@ -365,7 +365,7 @@ def docker_init(args, l, rc):
     if remote.url:
         d = parse_url_to_dict(remote.url)
         acct = l.find_or_new_account(remote.url, major_type='ambry')
-        acct.encrypt_secret(remote.api_token)
+        acct.encrypt_secret(remote.jwt_secret)
 
     # Create a local user account entry for accessing the API
     account = l.find_or_new_account(set_url_part(remote.url, username='api'), major_type='api')
@@ -1066,7 +1066,7 @@ def docker_import(args, l, rc):
             elif role == 'ui':
                 remote.ui_name = m['name']
                 envs = _split_envs(inspect['Config']['Env'])
-                remote.api_token = envs['ambry_api_token']
+                remote.jwt_secret = envs.get('ambry_jwt_secret', envs.get('ambry_api_token'))
                 remote.url = envs['virtual_host']
             elif role == 'volumes':
                 remote.vol_name = m['name']

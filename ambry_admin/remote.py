@@ -41,7 +41,7 @@ def make_parser(cmd):
 
     sp = asp.add_parser('syncremote', help="Send remote and account information")
     sp.set_defaults(subcommand=syncremote)
-    config_p.add_argument('remotes', nargs='*', type=str, help='Names of remotes to send')
+    sp.add_argument('remotes', nargs='*', type=str, help='Names of remotes to send')
 
     sp = asp.add_parser('test', help="Call the API's test interface")
     sp.set_defaults(subcommand=test)
@@ -122,17 +122,13 @@ def info(args, l, rc):
         print remote # TODO Print info about the remote
     else:
         try:
-            e =  remote.find(args.bundle_ref[0])
+            e = remote.find(args.bundle_ref[0])
 
             for k, v in e.items():
                 print k, v
 
-
         except NotFoundError:
             fatal("Failed to find bundle for ref: '{}' ".format(args.bundle_ref[0]))
-
-def syncremote(args, l, rc):
-    pass
 
 def test(args, l, rc):
 
@@ -141,4 +137,31 @@ def test(args, l, rc):
     remote = get_remote(l, args)
 
     print remote.api_client.test()
+
+def syncremote(args, l, rc):
+    from ambry.util import parse_url_to_dict
+    from ambry.orm.exc import NotFoundError
+
+    local_remotes = []
+    local_accounts = {}
+    for remote_name in  args.remotes:
+        r = l.remote(remote_name)
+        local_remotes.append(r.dict)
+
+        d = parse_url_to_dict(r.url)
+
+        try:
+            a = l.account(d['hostname'])
+            local_accounts[a.account_id] = a.dict
+        except NotFoundError:
+            pass
+
+    foreign_remote = get_remote(l, args)
+
+    foreign_remote.api_client.library.remotes = local_remotes
+    foreign_remote.api_client.library.accounts = local_accounts
+
+
+
+
 

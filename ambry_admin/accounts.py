@@ -60,10 +60,14 @@ def run_command(args, rc):
 def add_account(args, l, rc):
 
     account = l.find_or_new_account(args.account_id[0])
-    account.major_type = args.service
-    account.access_key = args.access
-    account.encrypt_secret(args.secret)
-    account.url = args.url
+    if args.service:
+        account.major_type = args.service
+    if args.access:
+        account.access_key = args.access
+    if args.secret:
+        account.encrypt_secret(args.secret)
+    if args.url:
+        account.url = args.url
 
     l.commit()
 

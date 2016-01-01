@@ -26,8 +26,12 @@ def make_parser(cmd):
     sp.set_defaults(subcommand=add_remote) # CHANGE THIS to the function you want executed for this command
     sp.add_argument('-v', '--service', help="Service type. Usually 'ambry' or 's3' ")
     sp.add_argument('-u', '--url', help="URL")
-    sp.add_argument('-t', '--api-token', help="API secret")
+    sp.add_argument('-j', '--jwt-secret', help="JWT Secret")
     sp.add_argument('remote_name', nargs=1, type=str, help='Name of the remote')
+
+    sp = asp.add_parser('remove', help="Remove a remote")
+    sp.set_defaults(subcommand=remove_remote)
+    sp.add_argument('remote_name', nargs='*', type=str, help='Remote name')
 
     sp = asp.add_parser('list', help="List the remotes")
     sp.set_defaults(subcommand=list_remotes)
@@ -53,11 +57,26 @@ def add_remote(args, l, rc):
 
     r = l.find_or_new_remote(name)
 
-    r.service = args.service
-    r.url = args.url
-    r.api_token = args.api_token
+    if args.service:
+        r.service = args.service
+    if args.url:
+        r.url = args.url
+    if args.jwt_secret:
+        r.jwt_secret = args.jwt_secret
 
     l.commit()
+
+def remove_remote(args, l, rc):
+    from ambry.orm.exc import NotFoundError
+
+    for remote_name in args.remote_name:
+        try:
+            remote = l.remote(remote_name)
+            l.delete_remote(remote)
+            l.commit()
+        except NotFoundError:
+            warn("No remote found for {}".format(remote_name))
+
 
 def list_remotes(args, l, rc):
     from tabulate import tabulate
