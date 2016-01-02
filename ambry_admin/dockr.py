@@ -268,6 +268,8 @@ def _docker_mk_ui(rc, client,remote, hostname):
         envs['VIRTUAL_HOST'] = hostname
         envs['AMBRY_JWT_SECRET'] = remote.jwt_secret
 
+        envs['AMBRY_UI_DEBUG'] = 'true'
+
         if remote:
             envs['AMBRY_UI_TITLE'] = remote.message
 
@@ -381,7 +383,7 @@ def docker_init(args, l, rc):
 
     # Create the corresponding account in the UI's database
     ex = client.exec_create(container=ui_id,
-                            cmd='ambry accounts add -v user -a api -s {} api'.format(secret))
+                            cmd='ambry accounts add -v api -a api -s {} api'.format(secret))
 
     print client.exec_start(ex['Id'])
 
@@ -389,15 +391,15 @@ def docker_init(args, l, rc):
     l.commit()
 
     prt('UI Container')
-    prt('   Name: {}'.format(remote.ui_name))
-    prt('   URL:  {} '.format(remote.url))
+    prt('   Name      : {}'.format(remote.ui_name))
+    prt('   URL       : {} '.format(remote.url))
+    prt('   Cedentials: {}/{} '.format(account.access_key, account.decrypt_secret()))
 
     if l and l.database.dsn != remote.db_dsn:
         prt("Set the library.database configuration to this DSN:")
         prt("    " + remote.db_dsn)
     if remote.db_host == 'localhost':
         warn("No public port; you'll need to set up a tunnel for external access")
-
 
 
 def check_ambry_image(client, image):

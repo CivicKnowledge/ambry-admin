@@ -52,6 +52,7 @@ def run_command(args, rc):
         l = new_library(rc)
         l.logger = global_logger
     except Exception as e:
+        warn('No library: {}'.format(e))
         l = None
 
     args.subcommand(args, l, rc) # Note the calls to sp.set_defaults(subcommand=...)
