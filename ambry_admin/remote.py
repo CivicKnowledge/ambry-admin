@@ -23,8 +23,13 @@ def make_parser(cmd):
     config_p.add_argument('remote_name', nargs=1, type=str, help='Name of remote to operate on')
     asp = config_p.add_subparsers(title='Remote commands', help='Remote commands')
 
-    sp = asp.add_parser('checkin', help="Checkin a bundle")
+    sp = asp.add_parser('checkin', help="Check in a bundle")
     sp.set_defaults(subcommand=checkin)
+    sp.add_argument('-n', '--no-partitions', default=False, action='store_true',
+                               help="Don't check in partitions")
+    sp.add_argument('-r', '--remote', help='Specify remote, rather than using default for bundle')
+    sp.add_argument('-s', '--source', default=False, action='store_true',
+                           help='Only package source files')
     sp.add_argument('bundle_ref', nargs=1, type=str, help='Reference to a bundle')
 
     sp = asp.add_parser('remove', help="Remote a bundle")
@@ -73,7 +78,6 @@ def get_remote(l, name):
 
 def checkin(args, l, rc):
 
-    from ambry_client import Client
     from ambry.orm.exc import NotFoundError
 
     remote = get_remote(l, args)
@@ -81,11 +85,11 @@ def checkin(args, l, rc):
     for ref in args.bundle_ref:
 
         b = l.bundle(ref)
-        b.package(rebuild=False)
+        package = b.package(rebuild=False, source_only=args.source)
         prt('Check in {}'.format(b.identity.fqname))
 
         try:
-            remote.checkin(b)
+            remote.checkin(package)
         except NotFoundError as e:
             fatal(e.message)
 

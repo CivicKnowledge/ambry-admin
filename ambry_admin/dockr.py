@@ -96,6 +96,8 @@ def make_parser(cmd):
                     help='Build the ssh tunnel docker image, civicknowledge/tunnel')
     sp.add_argument('-u', '--ui', default=False, action='store_true',
                     help='Build the user interface image, civicknowledge/ambryui')
+    sp.add_argument('-U', '--ui-debug', default=False, action='store_true',
+                    help='Build the user debug version of the interface image, civicknowledge/ambryui')
     sp.add_argument('-v', '--volumes', default=False, action='store_true',
                     help='Build the user interface image, civicknowledge/volumes')
     sp.add_argument('-c', '--ckan', default=False, action='store_true',
@@ -613,33 +615,39 @@ def docker_kill(args, l, rc):
 
     remove_remote = False if args.ui else True
 
-    for groupname in args.groupname:
+    for c in client.containers(all=True):
 
-        for c in client.containers(all=True):
-            name = c['Names'][0].strip('/')
-            if groupname in name:
+        try:
+            groupname = c['Labels'].get('civick.ambry.group')
+        except KeyError:
+            groupname = 'uknown'
 
-                try:
-                    role = c['Labels'].get('civick.ambry.role')
-                except KeyError:
-                    role = 'uknown'
+        if groupname not in args.groupname:
+            continue
 
-                if args.ui and role != 'ui':
-                    continue
+        name = c['Names'][0].strip('/')
 
-                if role == 'volumes' and not args.volumes:
-                    prt("Skipping {}; -v was not specified".format(name))
-                    continue
+        try:
+            role = c['Labels'].get('civick.ambry.role')
+        except KeyError:
+            role = 'uknown'
 
-                prt("Removing: {} ({})".format(name, role))
+        if args.ui and role != 'ui':
+            continue
 
-                client.remove_container(container=c['Id'], v=True, force=True)
+        if role == 'volumes' and not args.volumes:
+            prt("Skipping {}; -v was not specified".format(name))
+            continue
 
-                if remove_remote:
-                    try:
-                        l.delete_remote(groupname)
-                    except NotFoundError:
-                        pass
+        prt("Removing: {} ({})".format(name, role))
+
+        client.remove_container(container=c['Id'], v=True, force=True)
+
+        if remove_remote:
+            try:
+                l.delete_remote(groupname)
+            except NotFoundError:
+                pass
 
 
 
@@ -973,6 +981,9 @@ def docker_build(args, l, rc):
 
     if args.ui:
         d_build('ambryui')
+
+    if args.ui_debug:
+        d_build('ambryui-debug', tag='ambryui')
 
     if args.volumes:
         d_build('volumes')

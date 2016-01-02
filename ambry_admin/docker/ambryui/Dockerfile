@@ -10,5 +10,5 @@ EXPOSE 80
 
 # gunicorn -w 4 -b 0.0.0.0:80 ambry.ui:app
 # THe --max-requests isn't really necessary, but does help with reducing number of
-# idel, open connections.
-CMD ["gunicorn", "-w", "1", "--max-requests", "10", "-b", "0.0.0.0:80", "ambry.ui:app"]
+# idle, open connections.
+CMD ["gunicorn", "-w", "4", "--max-requests", "10", "-b", "0.0.0.0:80", "ambry.ui:app"]
