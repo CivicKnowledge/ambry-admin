@@ -9,5 +9,4 @@ VOLUME ['/var/ambry', '/var/backups']
 
 RUN addgroup -g 1000 ambry && chgrp ambry /var/ambry && chmod g+rwxs /var/ambry
 
-
 MAINTAINER Eric Busboom "eric@civicknowledge.org"

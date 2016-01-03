@@ -61,8 +61,13 @@ def add_remote(args, l, rc):
         r.service = args.service
     if args.url:
         r.url = args.url
+    if args.docker_url:
+        r.url = args.docker_url
     if args.jwt_secret:
         r.jwt_secret = args.jwt_secret
+
+
+
 
     l.commit()
 

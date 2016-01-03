@@ -33,7 +33,6 @@ def make_parser(cmd):
     sp.add_argument('-H', '--host', help="Hostname. Start with '.' to prepend the groupname ")
     sp.add_argument('groupname', nargs=1, type=str, help='Name of group to initialize')
 
-
     sp = asp.add_parser('shell', help='Run a shell in a container')
     sp.set_defaults(subcommand='shell')
     sp.add_argument('-k', '--kill', default=False, action='store_true',
@@ -102,6 +101,8 @@ def make_parser(cmd):
                     help='Build the user interface image, civicknowledge/volumes')
     sp.add_argument('-c', '--ckan', default=False, action='store_true',
                     help='Build the CKAN image, civicknowledge/ckan')
+    sp.add_argument('-p', '--proxy', default=False, action='store_true',
+                    help='Build the proxy image, civicknowledge/proxy')
 
 
     sp = asp.add_parser('import', help='Import basic information about a remote from docker')
@@ -238,7 +239,8 @@ def _docker_mk_db(rc, client, remote, public_port = False):
 
     if port:
         dsn = 'postgres://{username}:{password}@{host}:{port}/{database}?docker'.format(
-            username=groupname, password=password, database=database, host=db_host_ip, port=port)
+            username=remote.short_name, password=remote.tr_db_password, database=remote.short_name,
+            host=client.base_url, port=port)
 
     else:
         dsn = 'postgres://{username}:{password}@{host}:{port}/{database}?docker'.format(
@@ -296,6 +298,7 @@ def _docker_mk_ui(rc, client,remote, hostname):
             )
         )
 
+
         r = client.create_container(**kwargs)
 
         while True:
@@ -323,6 +326,57 @@ def _docker_mk_ui(rc, client,remote, hostname):
 
     return inspect['Id']
 
+
+def _docker_mk_proxy(client):
+    from docker.errors import NotFound
+
+    image = 'civicknowledge/proxy'
+
+    check_ambry_image(client, image)
+
+    container_name = 'ambry_proxy'
+
+    try:
+        inspect = client.inspect_container(container_name)
+        prt('Found proxy container {}'.format(container_name))
+    except NotFound:
+        prt('Creating proxy container {}'.format(container_name))
+
+        kwargs = dict(
+            name=container_name,
+            image=image,
+            labels={
+                'civick.ambry.role': 'proxy'
+            },
+            detach=False,
+            tty=True,
+            stdin_open=True,
+            host_config=client.create_host_config(
+                binds=[
+                    '/var/run/docker.sock:/tmp/docker.sock:ro',
+                ],
+                port_bindings={80: ('0.0.0.0',80)}
+            )
+        )
+
+        r = client.create_container(**kwargs)
+
+        while True:
+            try:
+                inspect = client.inspect_container(r['Id'])
+                break
+            except NotFound:
+                prt('Waiting for container to be created')
+
+        client.start(r['Id'])
+
+        inspect = client.inspect_container(r['Id'])
+
+
+
+    inspect = client.inspect_container(container_name)
+
+    return inspect['Id']
 
 def docker_init(args, l, rc):
     """Initialize a new docker volumes and database container, and report the database DSNs"""
@@ -361,6 +415,7 @@ def docker_init(args, l, rc):
 
     remote.message = args.message
 
+    _docker_mk_proxy(client)
     _docker_mk_volume(rc, client,remote)
     _docker_mk_db(rc, client,remote, public_port=args.public)
     ui_id = _docker_mk_ui(rc, client,remote, hostname=make_hostname(remote.short_name, args, rc))
@@ -943,6 +998,8 @@ def docker_build(args, l, rc):
             context = False
             docker_file_path = os.path.dirname(docker_file_in)
 
+        prt('Building')
+
         tag = 'civicknowledge/' + (tag or name)
 
         client = docker_client()
@@ -990,6 +1047,9 @@ def docker_build(args, l, rc):
 
     if args.ckan:
         d_build('ckan')
+
+    if args.proxy:
+        d_build('proxy')
 
 
 
