@@ -26,6 +26,7 @@ def make_parser(cmd):
     sp.set_defaults(subcommand=add_remote) # CHANGE THIS to the function you want executed for this command
     sp.add_argument('-v', '--service', help="Service type. Usually 'ambry' or 's3' ")
     sp.add_argument('-u', '--url', help="URL")
+    sp.add_argument('-d', '--docker-url', help="URL of docker host")
     sp.add_argument('-j', '--jwt-secret', help="JWT Secret")
     sp.add_argument('remote_name', nargs=1, type=str, help='Name of the remote')
 
@@ -33,9 +34,15 @@ def make_parser(cmd):
     sp.set_defaults(subcommand=remove_remote)
     sp.add_argument('remote_name', nargs='*', type=str, help='Remote name')
 
-    sp = asp.add_parser('list', help="List the remotes")
+    sp = asp.add_parser('list', help="List the remotes or the cached directly linstings of all remotes")
     sp.set_defaults(subcommand=list_remotes)
     sp.add_argument('-v', '--service', help="Only list accounts of this service type")
+    sp.add_argument('-c', '--cached', default=False, action='store_true',
+                    help="List the contents of the cached Directory listings")
+
+    sp = asp.add_parser('update', help="Update the cached directory listing for each remote")
+    sp.set_defaults(subcommand=update)
+
 
     sp = asp.add_parser('sync', help="Synchronize the remotes and accounts from the configuration to the database")
     sp.set_defaults(subcommand=sync)
@@ -87,23 +94,34 @@ def list_remotes(args, l, rc):
     from tabulate import tabulate
     from ambry.util import drop_empty
 
-    def proc_remote(r):
-        from collections import OrderedDict
-        return  OrderedDict( (k,v) for k,v in r.dict.items() if k in
-                             ['short_name','service','url','docker_url','api_token','account_password',
-                              'db_dsn','message'])
+    if args.cached:
+        records = []
+        for remote in l.remotes:
+            if 'list' in remote.data:
+                for k, v in remote.data['list'].items():
+                    records.append([remote.short_name, k, v['name']])
 
-    remotes = [proc_remote(r) for r in l.remotes if r.service == args.service or not args.service]
+        print tabulate(records, ['Remote','Vid','VName'])
 
-    if not remotes:
-        return
+    else:
 
-    headers = remotes[0].keys()
+        def proc_remote(r):
+            from collections import OrderedDict
+            return  OrderedDict( (k,v) for k,v in r.dict.items() if k in
+                                 ['short_name','service','url','docker_url','api_token','account_password',
+                                  'db_dsn','message'])
 
-    records = drop_empty([headers]+[r.values() for r in remotes])
+        remotes = [proc_remote(r) for r in l.remotes if r.service == args.service or not args.service]
+
+        if not remotes:
+            return
+
+        headers = remotes[0].keys()
+
+        records = drop_empty([headers]+[r.values() for r in remotes])
 
 
-    print tabulate(records[1:], records[0])
+        print tabulate(records[1:], records[0])
 
 def sync(args, l, rc):
     from ambry.library.config import LibraryConfigSyncProxy
@@ -112,3 +130,31 @@ def sync(args, l, rc):
 
     lsp.sync(force=True)
 
+def update(args,l,rc):
+    from ambry.orm.exc import NotFoundError
+
+    for r in l.remotes:
+
+        d = {}
+
+        try:
+            for k, v in r.list(full=True):
+                if not v:
+                    continue
+
+                d[v['vid']] = {
+                    'vid':v['vid'],
+                    'vname': v.get('vname'),
+                    'id': v.get('id'),
+                    'name': v.get('name')
+                }
+
+            r.data['list'] = d
+
+            prt("Updated {}; {} entries".format(r.short_name, len(d)))
+
+        except NotFoundError as e:
+            warn(e)
+            continue
+
+        l.commit()

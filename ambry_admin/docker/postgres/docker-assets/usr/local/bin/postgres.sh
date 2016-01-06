@@ -13,6 +13,8 @@ fi
 # Create postgres backup directory if needed
 mkdir -p /var/backups
 
+chown postgres.postgres /var/backups
+
 create_user () {
   if [ ! -e /var/lib/postgresql/firstrun ]; then
     mkdir -p /var/run/postgresql/9.3-main.pg_stat_tmp

@@ -37,6 +37,7 @@ def make_parser(cmd):
 
     sp = asp.add_parser('list', help="List the remotes")
     sp.set_defaults(subcommand=list_accounts)
+    sp.add_argument('-p', '--plain', default=False, action='store_true', help="Only list the ids")
     sp.add_argument('-v', '--service', help="Only list accounts of this service type")
     sp.add_argument('-s', '--secret', default=False, action='store_true',  help="Show secrets")
 
@@ -116,8 +117,11 @@ def list_accounts(args, l, rc):
 
     records = drop_empty([headers]+ records)
 
-
-    print tabulate(records[1:], records[0])
+    if not args.plain:
+        prt(tabulate(records[1:], records[0]))
+    else:
+        for r in records[1:]:
+            prt(r[0])
 
 def sync(args, l, rc):
     from ambry.library.config import LibraryConfigSyncProxy

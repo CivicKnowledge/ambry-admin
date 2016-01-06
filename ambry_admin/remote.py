@@ -39,14 +39,23 @@ def make_parser(cmd):
     sp = asp.add_parser('list', help="List the contents of the remote")
     sp.set_defaults(subcommand=remote_list)
     sp.add_argument('-s', '--summary',default=False, action='store_true', help="Also display summaries and titles")
+    sp.add_argument('-c', '--cached', default=False, action='store_true', help="List the contents of the cached Directory listings")
 
     sp = asp.add_parser('info', help="Info about remote or a bundle on a remote")
     sp.set_defaults(subcommand=info)
     sp.add_argument('bundle_ref', nargs='?', type=str, help='Reference to a bundle')
 
-    sp = asp.add_parser('syncremote', help="Send remote and account information")
+    sp = asp.add_parser('syncremote', help="Send remote and associated account information")
     sp.set_defaults(subcommand=syncremote)
     sp.add_argument('remotes', nargs='*', type=str, help='Names of remotes to send')
+
+    sp = asp.add_parser('syncacct', help="Send account information, without a remote")
+    sp.set_defaults(subcommand=syncacct)
+    sp.add_argument('accounts', nargs='*', type=str, help='Names of accounts to send')
+
+    sp = asp.add_parser('sync', help="Instruct the remote to checkin a remote bundle")
+    sp.set_defaults(subcommand=sync)
+    sp.add_argument('ref', nargs='*', type=str, help='Bundle references')
 
     sp = asp.add_parser('test', help="Call the API's test interface")
     sp.set_defaults(subcommand=test)
@@ -110,12 +119,19 @@ def remote_list(args, l, rc):
 
     remote = get_remote(l,args)
 
-    for name in remote.list():
-        if not args.summary:
-            print name
-        else:
-            e = remote.find(name)
-            print '{:12s} {:40s} {}'.format(e['vid'], e['name'], e.get('title'))
+    if args.cached:
+
+        if 'list' in remote.data:
+            for k, v in remote.data['list'].items():
+                print k, v['vname']
+    else:
+
+        for name in remote.list():
+            if not args.summary:
+                print name
+            else:
+                e = remote.find(name)
+                print '{:12s} {:40s} {}'.format(e['vid'], e['name'], e.get('title'))
 
 def info(args, l, rc):
     from ambry.orm.exc import NotFoundError
@@ -126,13 +142,13 @@ def info(args, l, rc):
         print remote # TODO Print info about the remote
     else:
         try:
-            e = remote.find(args.bundle_ref[0])
+            e = remote.find(args.bundle_ref)
 
             for k, v in e.items():
                 print k, v
 
         except NotFoundError:
-            fatal("Failed to find bundle for ref: '{}' ".format(args.bundle_ref[0]))
+            fatal("Failed to find bundle for ref: '{}' ".format(args.bundle_ref))
 
 def test(args, l, rc):
 
@@ -165,7 +181,25 @@ def syncremote(args, l, rc):
     foreign_remote.api_client.library.remotes = local_remotes
     foreign_remote.api_client.library.accounts = local_accounts
 
+def syncacct(args, l, rc):
+    from ambry.util import parse_url_to_dict
+    from ambry.orm.exc import NotFoundError
 
 
+    local_accounts = {}
+
+    for account_name in  args.accounts:
+
+        try:
+            a = l.account(account_name)
+            local_accounts[a.account_id] = a.dict
+        except NotFoundError:
+            warn("No account for id '{}' ".format(account_name))
+
+    foreign_remote = get_remote(l, args)
+
+    foreign_remote.api_client.library.accounts = local_accounts
 
 
+def sync(args, l, rc):
+    raise NotImplementedError()
