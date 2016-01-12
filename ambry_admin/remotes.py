@@ -73,9 +73,6 @@ def add_remote(args, l, rc):
     if args.jwt_secret:
         r.jwt_secret = args.jwt_secret
 
-
-
-
     l.commit()
 
 def remove_remote(args, l, rc):
@@ -132,6 +129,7 @@ def sync(args, l, rc):
 
 def update(args,l,rc):
     from ambry.orm.exc import NotFoundError
+    from requests.exceptions import ConnectionError
 
     for r in l.remotes:
 
@@ -154,6 +152,9 @@ def update(args,l,rc):
             prt("Updated {}; {} entries".format(r.short_name, len(d)))
 
         except NotFoundError as e:
+            warn(e)
+            continue
+        except ConnectionError as e:
             warn(e)
             continue
 

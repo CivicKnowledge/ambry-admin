@@ -67,9 +67,12 @@ def add_account(args, l, rc):
     if args.access:
         account.access_key = args.access
     if args.secret:
-        account.encrypt_secret(args.secret)
+        account.encrypt_secret(args.secret.strip())
     if args.url:
         account.url = args.url
+
+    if args.service == 'user': # Test the password to make sure the account will work.
+        assert account.test(args.secret.strip())
 
     l.commit()
 
