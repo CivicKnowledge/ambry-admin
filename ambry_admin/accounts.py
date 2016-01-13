@@ -67,7 +67,10 @@ def add_account(args, l, rc):
     if args.access:
         account.access_key = args.access
     if args.secret:
-        account.encrypt_secret(args.secret.strip())
+        if args.service == 'user':
+            account.encrypt_password(args.secret.strip())
+        else:
+            account.encrypt_secret(args.secret.strip())
     if args.url:
         account.url = args.url
 

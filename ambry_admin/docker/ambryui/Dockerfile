@@ -3,12 +3,9 @@ FROM civicknowledge/ambry
 
 MAINTAINER Eric Busboom "eric@civicknowledge.org"
 
-RUN pip install python-jose
-RUN pip install gunicorn==18 # I can't get 19 to run ...
+RUN pip install git+https://github.com/CivicKnowledge/ambry-ui.git
+RUN ambry config installcli ambry_ui
 
 EXPOSE 80
 
-# gunicorn -w 4 -b 0.0.0.0:80 ambry.ui:app
-# THe --max-requests isn't really necessary, but does help with reducing number of
-# idle, open connections.
-CMD ["gunicorn", "-w", "4", "--max-requests", "10", "-b", "0.0.0.0:80", "ambry.ui:app"]
+CMD ["run-ambryui-gunicorn", "-H0.0.0.0", "-p80" ]

@@ -248,7 +248,6 @@ def _docker_mk_db(rc, client, remote, public_port = False):
                 username=remote.short_name, password=remote.tr_db_password, database=remote.short_name,
                 host='localhost', port='5432')
 
-
         remote.db_dsn = dsn
 
     return inspect['Id']
@@ -305,7 +304,6 @@ def _docker_mk_ui(rc, client,remote):
                 port_bindings={80: ('0.0.0.0',)}
             )
         )
-
 
         r = client.create_container(**kwargs)
 
@@ -381,8 +379,6 @@ def _docker_mk_proxy(client):
 
         inspect = client.inspect_container(r['Id'])
 
-
-
     inspect = client.inspect_container(container_name)
 
     return inspect['Id']
@@ -404,21 +400,14 @@ def docker_init(args, l, rc):
     import random
     from ambry.util import parse_url_to_dict, random_string, set_url_part
     from time import sleep
-    from docker.errors import NotFound
-
 
     client = docker_client()
 
-    def id_generator(size=12, chars=string.ascii_lowercase + string.digits):
-        return ''.join(random.choice(chars) for _ in range(size))
-
     groupname = args.groupname[0]
 
-    remote =  l.find_or_new_remote(groupname, service='docker')
-    remote.message = args.message
+    remote = l.find_or_new_remote(groupname, service='docker')
+
     remote.docker_url = client.base_url
-    if not remote.jwt_secret:
-        remote.jwt_secret = random_string(16)
 
     if remote.db_dsn:
         d = parse_url_to_dict(remote.db_dsn)
@@ -426,7 +415,7 @@ def docker_init(args, l, rc):
         assert d['username'] == groupname
 
     else:
-        remote.tr_db_password = id_generator()
+        remote.tr_db_password = random_string(16)
 
     if not remote.vol_name:
         remote.vol_name = 'ambry_volumes_{}'.format(groupname)
@@ -437,34 +426,35 @@ def docker_init(args, l, rc):
     if not remote.ui_name:
         remote.ui_name =  'ambry_ui_{}'.format(remote.short_name)
 
-    remote.message = args.message
+    if args.message is not None:
+        remote.message = args.message
 
-    if args.host:
-        remote.virtual_host  = args.host
+    if args.host is not None:
+        remote.virtual_host = args.host
 
+
+    l.commit()
 
     _docker_mk_proxy(client)
     _docker_mk_volume(rc, client,remote)
     db_id = _docker_mk_db(rc, client,remote, public_port=args.public)
     ui_id = _docker_mk_ui(rc, client,remote)
 
+    l.commit()
+
     # Create an account entry for the api token
     if remote.url:
         d = parse_url_to_dict(remote.url)
         acct = l.find_or_new_account(remote.url, major_type='ambry')
-        acct.encrypt_secret(remote.jwt_secret)
 
     # Create a local user account entry for accessing the API
     account = l.find_or_new_account(set_url_part(remote.url, username='api'), major_type='api')
     if not account.access_key:
         account.url = remote.url
         account.access_key = 'api'
-        secret = random_string(20)
-        account.encrypt_secret(secret)
-    else:
-        secret = account.decrypt_secret()
+        account.secret = random_string(20)
 
-    assert secret
+    assert account.secret
 
     # Create the corresponding account in the UI's database. The database may not have been started yet, so
     # we may have to retry a bit
@@ -472,7 +462,7 @@ def docker_init(args, l, rc):
     success = False
     for i in range(10):
         ex = client.exec_create(container=ui_id,
-                                cmd='ambry accounts add -v api -a api -s {} api'.format(secret))
+                                cmd='ambry accounts add -v api -a api -s {} api'.format(account.secret))
 
         last_output = list(client.exec_start(ex['Id'], stream = True))
 
@@ -488,17 +478,22 @@ def docker_init(args, l, rc):
         warn("Failed to add api account to remote: ")
         prt('\n'.join(last_output))
 
+    # Now that the DB is running:
+    ex = client.exec_create(container=ui_id, cmd='ambry ui init')
+    client.exec_start(ex['Id'])
+
 
     l.commit()
 
     prt('UI Container')
     prt('   Name       : {}'.format(remote.ui_name))
     prt('   URL        : {} '.format(remote.url))
-    prt('   Credentials: {}/{} '.format(account.access_key, account.decrypt_secret()))
+    prt('   Credentials: {}/{} '.format(account.access_key, account.secret))
 
     if l and l.database.dsn != remote.db_dsn:
         prt("Set the library.database configuration to this DSN:")
         prt("    " + remote.db_dsn)
+
     if remote.db_host == 'localhost':
         warn("No public port; you'll need to set up a tunnel for external access")
 
@@ -1164,7 +1159,6 @@ def docker_import(args, l, rc):
             elif role == 'ui':
                 remote.ui_name = m['name']
                 envs = _split_envs(inspect['Config']['Env'])
-                remote.jwt_secret = envs.get('ambry_jwt_secret', envs.get('ambry_api_token'))
                 remote.url = envs['virtual_host']
             elif role == 'volumes':
                 remote.vol_name = m['name']

@@ -15,6 +15,9 @@ RUN ambry config install
 RUN pip install git+https://github.com/CivicKnowledge/ambry-admin.git
 RUN ambry config installcli ambry_admin
 
+RUN pip install git+https://github.com/CivicKnowledge/ambry-ui.git
+RUN ambry config installcli ambry_ui
+
 WORKDIR /var/ambry
 
 VOLUME /var/ambry
