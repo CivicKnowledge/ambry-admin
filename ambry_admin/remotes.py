@@ -23,11 +23,14 @@ def make_parser(cmd):
     asp = config_p.add_subparsers(title='Remotes commands', help='Remotes commands')
 
     sp = asp.add_parser('add', help="Add a remote")
-    sp.set_defaults(subcommand=add_remote) # CHANGE THIS to the function you want executed for this command
+    sp.set_defaults(subcommand=add_remote)
     sp.add_argument('-v', '--service', help="Service type. Usually 'ambry' or 's3' ")
     sp.add_argument('-u', '--url', help="URL")
     sp.add_argument('-d', '--docker-url', help="URL of docker host")
-    sp.add_argument('-j', '--jwt-secret', help="JWT Secret")
+    sp.add_argument('-U', '--username', help="User Name")
+    sp.add_argument('-a', '--access-key', help="Access Key")
+    sp.add_argument('-s', '--secret-key', help="Secret Key")
+
     sp.add_argument('remote_name', nargs=1, type=str, help='Name of the remote')
 
     sp = asp.add_parser('remove', help="Remove a remote")
@@ -60,18 +63,39 @@ def run_command(args, rc):
     args.subcommand(args, l, rc) # Note the calls to sp.set_defaults(subcommand=...)
 
 def add_remote(args, l, rc):
+    from ambry.util import parse_url_to_dict
+
     name = args.remote_name[0]
 
     r = l.find_or_new_remote(name)
 
+    if (args.secret_key or args.access_key) and args.url:
+        hostname = parse_url_to_dict(args.url)['hostname']
+        a = l.find_or_new_account(hostname)
+    else:
+        a = None
+
     if args.service:
         r.service = args.service
+    elif args.url:
+        r.service = parse_url_to_dict(args.url)['scheme']
+
     if args.url:
         r.url = args.url
+
     if args.docker_url:
         r.url = args.docker_url
-    if args.jwt_secret:
-        r.jwt_secret = args.jwt_secret
+
+    if args.access_key:
+        if not a:
+            fatal('access-key argument requires a url')
+        a.access_key = args.access_key
+
+    if args.secret_key:
+        if not a:
+            fatal('secret_key argument requires a url')
+        a.encrypt_secret(args.secret_key.strip())
+
 
     l.commit()
 

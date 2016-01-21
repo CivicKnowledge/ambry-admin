@@ -1,5 +1,3 @@
 include requirements.txt
 include README.rst
 include LICENSE
-recursive-include public_search/ui/templates *
-

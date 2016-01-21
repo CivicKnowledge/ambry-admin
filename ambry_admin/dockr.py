@@ -37,6 +37,8 @@ def make_parser(cmd):
     sp.set_defaults(subcommand='shell')
     sp.add_argument('-k', '--kill', default=False, action='store_true',
                     help="Kill a running shell before starting a new one")
+    sp.add_argument('-d', '--detach', default=False, action='store_true',
+                    help="Detach after starting the process")
 
     sp.add_argument('groupname', nargs=1, type=str, help='Name of group creat shell for')
     sp.add_argument('docker_command', nargs='*', type=str, help='Command to run, instead of bash')
@@ -482,7 +484,6 @@ def docker_init(args, l, rc):
     ex = client.exec_create(container=ui_id, cmd='ambry ui init')
     client.exec_start(ex['Id'])
 
-
     l.commit()
 
     prt('UI Container')
@@ -556,9 +557,9 @@ def docker_shell(args, l, rc):
                 'civick.ambry.group': remote.short_name,
                 'civick.ambry.role': 'shell'
             },
-            detach=False,
-            tty=True,
-            stdin_open=True,
+            detach=args.detach,
+            tty= not args.detach,
+            stdin_open= not args.detach,
             environment=remote_envs(rc,remote),
             host_config=client.create_host_config(
                 volumes_from=[remote.vol_name],
@@ -580,8 +581,13 @@ def docker_shell(args, l, rc):
             except NotFound:
                 prt('Waiting for container to be created')
 
-        prt('Starting {}'.format(inspect['Id']))
-        os.execlp('docker', 'docker', 'start', '-a', '-i', inspect['Id'])
+        if args.detach:
+            prt('Starting {} in background'.format(inspect['Id']))
+            client.start(inspect['Id'])
+        else:
+            prt('Starting {} with exec'.format(inspect['Id']))
+            # Starting with an exec to get a proper shell.
+            os.execlp('docker', 'docker', 'start', '-a', '-i', inspect['Id'])
 
     else:
 
@@ -930,7 +936,6 @@ def docker_info(args, l, rc):
             sys.exit(1)
 
 
-
 def remote_envs(rc, remote):
     from ambry.util import parse_url_to_dict, unparse_url_dict
 
@@ -938,7 +943,7 @@ def remote_envs(rc, remote):
 
     if not 'docker' in d['query']:
         fatal("Database '{}' doesn't look like a docker database DSN; it should have 'docker' at the end"
-              .format(dsn))
+              .format(remote.db_dsn))
 
     # Create the new container DSN; in docker, the database is always known as 'db'
     d['hostname'] = 'db'
@@ -1029,15 +1034,19 @@ def docker_build(args, l, rc):
                                  tag=tag, decode=True):
             if 'stream' in line:
                 print line['stream'],
+            elif 'status' in line:
+                print 'Status', line['status']
+
             elif 'errorDetail' in line:
                 m = line['errorDetail']['message']
                 raise DockerError("Docker Error: "+m)
+
             else:
                 raise DockerError(line)
 
         client.tag(tag+':latest', tag, __version__, force=True)
 
-    if args.base:
+    if args.base or args.all:
         d_build('ambry-base', context=True)
 
     if args.numbers:
@@ -1046,29 +1055,28 @@ def docker_build(args, l, rc):
     if args.build:
         d_build('ambry', context=True)
 
-    if args.dev:
-
+    if args.dev or args.all:
         d_build('dev', tag='ambry', context=True)
 
-    if args.db:
+    if args.db or args.all:
         d_build('postgres')
 
     if args.tunnel:
         d_build('tunnel')
 
-    if args.ui:
+    if args.ui or args.all:
         d_build('ambryui')
 
     if args.ui_debug:
         d_build('ambryui-debug', tag='ambryui')
 
-    if args.volumes:
+    if args.volumes or args.all:
         d_build('volumes')
 
     if args.ckan:
         d_build('ckan')
 
-    if args.proxy:
+    if args.proxy or args.all:
         d_build('proxy')
 
 
@@ -1159,7 +1167,7 @@ def docker_import(args, l, rc):
             elif role == 'ui':
                 remote.ui_name = m['name']
                 envs = _split_envs(inspect['Config']['Env'])
-                remote.url = envs['virtual_host']
+                remote.url = "http://"+envs['virtual_host']
             elif role == 'volumes':
                 remote.vol_name = m['name']
 

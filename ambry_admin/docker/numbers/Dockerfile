@@ -1,4 +1,7 @@
-
+#
+# Ambry Numbers Server
+#
+# Run this container with a link to a redis container, via the name 'ambry-redis'
 FROM civicknowledge/ambry-base
 
 MAINTAINER Eric Busboom "eric@civicknowledge.org"

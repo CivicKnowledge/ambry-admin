@@ -6,6 +6,11 @@ MAINTAINER Eric Busboom "eric@civicknowledge.org"
 RUN pip install git+https://github.com/CivicKnowledge/ambry-ui.git
 RUN ambry config installcli ambry_ui
 
+# Method for setting up a service in phusion/baseimage
+RUN mkdir /etc/service/ambryui
+ADD run /etc/service/ambryui/run
+
 EXPOSE 80
 
-CMD ["run-ambryui-gunicorn", "-H0.0.0.0", "-p80" ]
+# Use baseimage-docker's init system.
+CMD ["/sbin/my_init"]
