@@ -39,3 +39,4 @@ RUN pip install --ignore-installed -r /tmp/ambry-*/requirements/base_py2.txt  &&
 
 RUN rm -rf /tmp/ambry-*
 
+RUN echo 'source /usr/local/bin/ambry-aliases.sh' >> /root/.bashrc

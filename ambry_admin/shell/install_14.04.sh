@@ -42,8 +42,12 @@ pip install git+https://github.com/CivicKnowledge/ambry_sources.git
 pip install git+https://github.com/CivicKnowledge/geoid.git
 pip install git+https://github.com/CivicKnowledge/censuslib.git
 
+ambry config install
+
 pip install git+https://github.com/CivicKnowledge/ambry-admin.git
 ambry config installcli ambry_admin
 
 pip install git+https://github.com/CivicKnowledge/ambry-ui.git
 ambry config installcli ambry_ui
+
+echo 'source /usr/local/bin/ambry-aliases.sh' >> ~/.bashrc
