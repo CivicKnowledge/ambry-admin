@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Install from the net with:
+# $ sudo sh -c "$(curl -fsSL https://raw.githubusercontent.com/CivicKnowledge/ambry-admin/master/ambry_admin/shell/install_14.04.sh)"
+
 
 apt-get update
 
@@ -22,7 +25,7 @@ pip install --ignore-installed requests
 export LANGUAGE=en_US.UTF-8
 export LANG=en_US.UTF-8
 export LC_ALL=en_US.UTF-8
-export locale-gen=en_US.UTF-8
+locale-gen en_US.UTF-8
 dpkg-reconfigure locales
 
 groupadd -g 1000  ambry
