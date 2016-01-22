@@ -154,6 +154,7 @@ def sync(args, l, rc):
 def update(args,l,rc):
     from ambry.orm.exc import NotFoundError
     from requests.exceptions import ConnectionError
+    from boto.exception import S3ResponseError
 
     for r in l.remotes:
 
@@ -175,10 +176,7 @@ def update(args,l,rc):
 
             prt("Updated {}; {} entries".format(r.short_name, len(d)))
 
-        except NotFoundError as e:
-            warn(e)
-            continue
-        except ConnectionError as e:
+        except (NotFoundError, ConnectionError, S3ResponseError) as e:
             warn(e)
             continue
 
