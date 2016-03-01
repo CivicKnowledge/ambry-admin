@@ -115,7 +115,13 @@ def list_accounts(args, l, rc):
 
         if not args.service or args.service == acct.major_type:
 
-            rec = [acct.account_id,acct.major_type,acct.user_id,acct.access_key,acct.url]
+
+            if acct.minor_type:
+                t = "{}/{}".format(acct.major_type, acct.minor_type)
+            else:
+                t = acct.major_type
+
+            rec = [acct.account_id,t,acct.user_id,acct.access_key,acct.url]
 
             if args.secret:
                 rec.append(acct.decrypt_secret())
