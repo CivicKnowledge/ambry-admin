@@ -7,6 +7,18 @@ MAINTAINER Eric Busboom "eric@civicknowledge.org"
 
 ENV AMBRY_IS_REMOTE 1
 
+WORKDIR /tmp
+#
+# Get a late version of Sqlite, so apsw will build
+RUN wget https://www.sqlite.org/2016/sqlite-autoconf-3100200.tar.gz
+RUN tar -xzvf sqlite-autoconf-3100200.tar.gz
+RUN cd sqlite-autoconf-3100200 && ./configure && make && make install
+
+
+# Install pacakges for the ambry_sources extras. I don't know how to spec these
+# otherwise.
+RUN pip install apsw==3.8.8.2-post1 psycopg2==2.6 Fiona==1.6.1 Shapely==1.5.12
+
 RUN pip install git+https://github.com/CivicKnowledge/ambry_sources.git && \
     pip install git+https://github.com/CivicKnowledge/geoid.git
 

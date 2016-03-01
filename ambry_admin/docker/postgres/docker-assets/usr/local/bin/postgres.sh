@@ -33,6 +33,7 @@ create_user () {
     psql -c "CREATE DATABASE template1 WITH TEMPLATE = template0 ENCODING = '$ENCODING';"
     psql -c "UPDATE pg_database SET datistemplate = TRUE WHERE datname = 'template1';"
     psql -d 'template1' -c "VACUUM FREEZE;"
+
     if [ "$USER" == "postgres" ]; then
       echo "ALTER USER :user WITH PASSWORD :'password' ;" | psql --set user=$USER --set password=$PASSWORD
       if [ "$SCHEMA" != "postgres" ]; then
@@ -44,13 +45,17 @@ create_user () {
 
 
     if echo $POSTGIS |grep -i -q true; then
-      echo "CREATING EXTENSIONS"
-      echo "CREATE EXTENSION postgis;CREATE EXTENSION postgis_topology;" | psql -d $SCHEMA
+      echo "CREATING POSTGIS EXTENSIONS in database $SCHEMA"
+      echo "CREATE EXTENSION postgis; CREATE EXTENSION postgis_topology;" | psql -d $SCHEMA
     else
-      echo "NOT CREATING EXTENSIONS"
+      echo "NOT CREATING POSTGIS EXTENSIONS"
     fi
 
+    echo "CREATING pg_trgm EXTENSION in database $SCHEMA"
     echo "CREATE EXTENSION pg_trgm;" | psql -d $SCHEMA
+
+    echo "CREATING multicorn EXTENSION in database $SCHEMA"
+    echo "CREATE EXTENSION multicorn;" | psql -d $SCHEMA
 
     # Prevents error:   operator class "gist_trgm_ops" does not exist for access method "gist"
     echo "alter extension pg_trgm set schema pg_catalog;" | psql -d $SCHEMA

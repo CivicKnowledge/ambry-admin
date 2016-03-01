@@ -62,19 +62,25 @@ def run_command(args, rc):
 def add_account(args, l, rc):
 
     account = l.find_or_new_account(args.account_id[0])
+
     if args.service:
-        account.major_type = args.service
+        if '/' in args.service:
+            account.major_type, account.minor_type = args.service.split('/')
+        else:
+            account.major_type = args.service
+
     if args.access:
         account.access_key = args.access
+
     if args.secret:
-        if args.service == 'user':
+        if account.major_type == 'user':
             account.encrypt_password(args.secret.strip())
         else:
             account.encrypt_secret(args.secret.strip())
     if args.url:
         account.url = args.url
 
-    if args.service == 'user': # Test the password to make sure the account will work.
+    if account.major_type == 'user': # Test the password to make sure the account will work.
         assert account.test(args.secret.strip())
 
     l.commit()

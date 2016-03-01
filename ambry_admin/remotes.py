@@ -126,11 +126,17 @@ def list_remotes(args, l, rc):
 
     else:
 
+        if args.service == 's3':
+            fields = ['short_name', 'bundle_count', 'url','access','secret']
+        elif args.service == 'docker':
+            fields = ['short_name', 'service', 'url', 'docker_url', 'api_token', 'account_password',
+                      'db_dsn', 'message']
+        else:
+            fields = ['short_name', 'service', 'url' ]
+
         def proc_remote(r):
             from collections import OrderedDict
-            return  OrderedDict( (k,v) for k,v in r.dict.items() if k in
-                                 ['short_name','service','url','docker_url','api_token','account_password',
-                                  'db_dsn','message'])
+            return  OrderedDict( (k,v) for k,v in r.dict.items() if k in fields )
 
         remotes = [proc_remote(r) for r in l.remotes if r.service == args.service or not args.service]
 
@@ -152,32 +158,18 @@ def sync(args, l, rc):
     lsp.sync(force=True)
 
 def update(args,l,rc):
+    from ambry.orm.remote import RemoteAccessError
     from ambry.orm.exc import NotFoundError
-    from requests.exceptions import ConnectionError
+    from requests.exceptions import ConnectionError, HTTPError
     from boto.exception import S3ResponseError
 
     for r in l.remotes:
 
-        d = {}
-
         try:
-            for k, v in r.list(full=True):
-                if not v:
-                    continue
+            r.update()
+        except RemoteAccessError:
+            warn("Failed for {}: {}".format(r.short_name, e))
 
-                d[v['vid']] = {
-                    'vid':v['vid'],
-                    'vname': v.get('vname'),
-                    'id': v.get('id'),
-                    'name': v.get('name')
-                }
-
-            r.data['list'] = d
-
-            prt("Updated {}; {} entries".format(r.short_name, len(d)))
-
-        except (NotFoundError, ConnectionError, S3ResponseError) as e:
-            warn(e)
             continue
 
         l.commit()

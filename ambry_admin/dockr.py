@@ -23,14 +23,22 @@ def make_parser(cmd):
 
     asp = config_p.add_subparsers(title='Docker commands', help='Docker commands')
 
-    sp = asp.add_parser('init', help="Initialilze a new data volume and database")
-    sp.set_defaults(subcommand='init')
-    sp.add_argument('-n', '--new', default=False, action='store_true',
-                    help="Initialize a new database and volume, and report the new DSN")
+    sp = asp.add_parser('library', help="Initialilze a new data volume and database")
+    sp.set_defaults(subcommand='library')
     sp.add_argument('-p', '--public', default=False, action='store_true',
                     help="Map the database port to the host")
-    sp.add_argument('-m', '--message', help="Add a message to the record for this container cluster")
-    sp.add_argument('-H', '--host', help="Hostname. Start with '.' to prepend the groupname ")
+    sp.add_argument('groupname', nargs=1, type=str, help='Name of group to initialize')
+
+    sp = asp.add_parser('host', help="Set parameters for the current docker host")
+    sp.set_defaults(subcommand='host')
+    sp.add_argument('-v', '--virtual', help="Set the base for virtual host names")
+
+    sp = asp.add_parser('ui', help="Create or destroy a UI container for a group")
+    sp.set_defaults(subcommand='ui')
+    sp.add_argument('-k', '--kill', default=False, action='store_true', help="Kill a running UI continer")
+    sp.add_argument('-r', '--restart', default=False, action='store_true', help="Start, or stop and start, a UI container")
+    sp.add_argument('-v', '--virtual', help="Set the virtual hostname")
+    sp.add_argument('-t', '--title', help="Set the display title")
     sp.add_argument('groupname', nargs=1, type=str, help='Name of group to initialize')
 
     sp = asp.add_parser('shell', help='Run a shell in a container')
@@ -61,7 +69,6 @@ def make_parser(cmd):
                     help="Kill only the ui")
     sp.add_argument('-v', '--volumes', default=False, action='store_true',
                     help="Also destroy the volumes container, which is preserved by default")
-
 
     sp = asp.add_parser('ckan', help='Run the ckan container')
     sp.set_defaults(subcommand='ckan')
@@ -166,7 +173,6 @@ def _docker_mk_volume(rc, client, remote):
             image=volumes_image,
             labels={
                 'civick.ambry.group': remote.short_name,
-                'civick.ambry.message': remote.message,
                 'civick.ambry.role': 'volumes'
             },
             volumes=['/var/ambry', '/var/backups'],
@@ -207,7 +213,6 @@ def _docker_mk_db(rc, client, remote, public_port = False):
             image=postgres_image,
             labels={
                 'civick.ambry.group': remote.short_name,
-                'civick.ambry.message': remote.message,
                 'civick.ambry.role': 'db'
 
             },
@@ -254,43 +259,75 @@ def _docker_mk_db(rc, client, remote, public_port = False):
 
     return inspect['Id']
 
-
-def _docker_mk_ui(rc, client,remote):
+def _docker_mk_ui(rc, client, group_name=None, dsn=None, virtual_host=None):
     from docker.errors import NotFound
-    from ambry.util import parse_url_to_dict
+    from ambry.util import parse_url_to_dict, select_from_url
 
     image = 'civicknowledge/ambryui'
 
     check_ambry_image(client, image)
 
+    assert (group_name is not None) or ( dsn is not None)
+
+    envs = {}
+
+    if group_name:
+        vol_name = 'ambry_volumes_{}'.format(group_name)
+        try:
+            inspect = client.inspect_container(vol_name)
+            prt('Using group volume: {}'.format(vol_name))
+            volumes_from = [vol_name]
+        except NotFound:
+            volumes_from = None
+    else:
+        volumes_from = None
+
+    if group_name and not dsn:
+        db_name = 'ambry_db_{}'.format(group_name)
+
+        inspect = client.inspect_container(db_name)
+
+        prt('Using docker db : {}'.format(db_name))
+        links = { db_name: 'db', }
+        dsn = _docker_db_dsn(client, db_name)
+        envs['AMBRY_DB'] = docker_local_dsn(dsn)
+
+    else:
+        envs['AMBRY_DB'] = dsn
+        links = None
+
+    if not group_name:
+        group_name = select_from_url(dsn, 'username')
+
+    docker_name = 'ambry_ui_{}'.format(group_name)
+
     try:
-        inspect = client.inspect_container(remote.ui_name)
-        prt('Found ui container {}'.format(remote.ui_name))
+        inspect = client.inspect_container(docker_name)
+        prt('Found ui container {}'.format(docker_name))
+
+        # So the info printing at the end works
+        envs['VIRTUAL_HOST'] = next( e.split('=')[1] for e in inspect['Config']['Env']
+                                     if e.split('=')[0] == 'VIRTUAL_HOST' )
+
     except NotFound:
-        prt('Creating ui container {}'.format(remote.ui_name))
+        prt('Creating ui container {}'.format(docker_name))
 
-        envs = remote_envs(rc, remote)
-
-        if remote.virtual_host:
-            hostname = remote.virtual_host
+        if virtual_host:
+            hostname = virtual_host
             if hostname.startswith('.'):
-                hostname = remote.short_name + hostname
+                hostname = group_name + hostname
         else:
             hostname = None
 
         envs['VIRTUAL_HOST'] = hostname
-        envs['AMBRY_JWT_SECRET'] = remote.jwt_secret
 
-        envs['AMBRY_UI_DEBUG'] = 'true'
-
-        if remote:
-            envs['AMBRY_UI_TITLE'] = remote.message
+        #envs['AMBRY_UI_DEBUG'] = 'true'
 
         kwargs = dict(
-            name=remote.ui_name,
+            name=docker_name,
             image=image,
             labels={
-                'civick.ambry.group': remote.short_name,
+                'civick.ambry.group': group_name,
                 'civick.ambry.role': 'ui',
                 'civick.ambry.virt_host': envs.get('VIRTUAL_HOST')
             },
@@ -299,10 +336,8 @@ def _docker_mk_ui(rc, client,remote):
             stdin_open=True,
             environment=envs,
             host_config=client.create_host_config(
-                volumes_from=[remote.vol_name],
-                links={
-                    remote.db_name: 'db',
-                },
+                volumes_from=volumes_from,
+                links=links,
                 port_bindings={80: ('0.0.0.0',)}
             )
         )
@@ -320,20 +355,137 @@ def _docker_mk_ui(rc, client,remote):
 
         inspect = client.inspect_container(r['Id'])
 
+    if envs.get('VIRTUAL_HOST'):
+        remote_url = 'http://{}'.format(envs.get('VIRTUAL_HOST'))
+    else:
+        docker_host = select_from_url(client.base_url, 'hostname')
+
         try:
             port = inspect['NetworkSettings']['Ports']['80/tcp'][0]['HostPort']
         except:
             port = None
 
-        if envs.get('VIRTUAL_HOST'):
-            remote.url = 'http://{}'.format(envs.get('VIRTUAL_HOST'))
+        remote_url = 'http://{}{}'.format(docker_host, ':{}'.format(port) if port else '')
+
+
+
+    inspect = client.inspect_container(docker_name)
+
+    return inspect['Id'], remote_url
+
+def docker_ui(args, l, rc):
+    from docker.errors import NotFound
+    from ambry.exc import NotFoundError
+    from ambry.util import select_from_url
+
+    client = docker_client()
+
+    if args.groupname[0].startswith('postgres://'):
+        # A database name
+        dsn = args.groupname[0]
+        group_name = None
+        container_name = "ambry_ui_{}".format(select_from_url(dsn, 'username'))
+    else:
+        group_name = args.groupname[0]
+        dsn = None
+        container_name = "ambry_ui_{}".format(group_name)
+
+    try:
+
+        if args.kill or args.restart:
+
+            if not group_name:
+                fatal("Must have a groupname to kill the UI container")
+
+            try:
+                client.remove_container(container_name, force=True)
+                prt("Killed {}", container_name)
+            except NotFound:
+                if args.kill:
+                    raise
+
+        if args.kill:
+            return
+
+        virtual = args.virtual
+
+        if not virtual:
+            try:
+                r = l.remote(client.base_url)
+                virtual = r.virtual_host
+            except NotFoundError:
+                pass
+
+        container_id, url = _docker_mk_ui(rc, client, group_name=group_name, dsn=dsn, virtual_host=virtual)
+
+        admin_password = _init_ui(l, client, url, container_id, virtual_host=args.virtual, title=args.title)
+
+        prt('UI Container')
+        prt('   Name       : {}'.format(container_name))
+        prt('   URL        : {} '.format(url))
+        prt('   Credentials: {}/{} '.format('admin',admin_password))
+
+    except NotFound as e:
+        fatal("Docker error: {}".format(str(e)))
+
+
+def _init_ui(library, client, remote_url,  ui_container_id, virtual_host=None, title=None):
+    # Create the corresponding account in the UI's database. The database may not have been started yet, so
+    # we may have to retry a bit
+
+    from time import sleep
+    from ambry.util import random_string
+
+    last_output = []
+    success = False
+
+    for i in range(10):
+
+        cmd = 'ambry ui init'
+
+        if virtual_host:
+            cmd += ' -v {}'.format(virtual_host)
+
+        if title:
+            cmd += ' -t {}'.format(title)
+
+        ex = client.exec_create(container=ui_container_id, cmd=cmd)
+
+        last_output = list(client.exec_start(ex['Id'], stream=True))
+
+        ei = client.exec_inspect(ex['Id'])
+        if ei['ExitCode'] == 0:
+            success = True
+            break
         else:
-            d = parse_url_to_dict((remote.docker_url))
-            remote.url = 'http://{}{}'.format(d['hostname'], ':{}'.format(port) if port else '')
+            prt("Database not running (yet?) Retry setting accounts")
+            sleep(1)
 
-    inspect = client.inspect_container(remote.ui_name)
+    if not success:
+        warn("Failed to add api account to remote: ")
+        prt('\n'.join(last_output))
 
-    return inspect['Id']
+    # Now that the DB is running:
+    admin_password = random_string(20)
+    ex = client.exec_create(container=ui_container_id,
+                            cmd='ambry accounts add -v user/admin -a admin -s {} admin'.format(admin_password))
+    client.exec_start(ex['Id'])
+
+    api_password = random_string(20)
+    ex = client.exec_create(container=ui_container_id,
+                            cmd='ambry accounts add -v api -a api -s {} api'.format(api_password))
+    client.exec_start(ex['Id'])
+
+    # Create a remote entry
+
+    acct = library.find_or_new_remote(remote_url, service='ambry')
+    acct.access = 'api'
+    acct.secret = api_password
+
+    library.commit()
+
+
+    return admin_password
 
 
 def _docker_mk_proxy(client):
@@ -395,13 +547,11 @@ def docker_volumes(args, l, rc):
 
     os.execvp('docker', shlex.split(cmd))
 
-def docker_init(args, l, rc):
+def docker_library(args, l, rc):
     """Initialize a new docker volumes and database container, and report the database DSNs"""
 
-    import string
-    import random
-    from ambry.util import parse_url_to_dict, random_string, set_url_part
-    from time import sleep
+
+    from ambry.util import parse_url_to_dict, random_string
 
     client = docker_client()
 
@@ -425,71 +575,14 @@ def docker_init(args, l, rc):
     if not remote.db_name:
         remote.db_name = 'ambry_db_{}'.format(groupname)
 
-    if not remote.ui_name:
-        remote.ui_name =  'ambry_ui_{}'.format(remote.short_name)
-
-    if args.message is not None:
-        remote.message = args.message
-
-    if args.host is not None:
-        remote.virtual_host = args.host
-
 
     l.commit()
 
     _docker_mk_proxy(client)
     _docker_mk_volume(rc, client,remote)
     db_id = _docker_mk_db(rc, client,remote, public_port=args.public)
-    ui_id = _docker_mk_ui(rc, client,remote)
 
     l.commit()
-
-    # Create an account entry for the api token
-    if remote.url:
-        d = parse_url_to_dict(remote.url)
-        acct = l.find_or_new_account(remote.url, major_type='ambry')
-
-    # Create a local user account entry for accessing the API
-    account = l.find_or_new_account(set_url_part(remote.url, username='api'), major_type='api')
-    if not account.access_key:
-        account.url = remote.url
-        account.access_key = 'api'
-        account.secret = random_string(20)
-
-    assert account.secret
-
-    # Create the corresponding account in the UI's database. The database may not have been started yet, so
-    # we may have to retry a bit
-    last_output = []
-    success = False
-    for i in range(10):
-        ex = client.exec_create(container=ui_id,
-                                cmd='ambry accounts add -v api -a api -s {} api'.format(account.secret))
-
-        last_output = list(client.exec_start(ex['Id'], stream = True))
-
-        ei = client.exec_inspect(ex['Id'])
-        if ei['ExitCode'] == 0:
-            success = True
-            break
-        else:
-            prt("Database not running (yet?) Retry setting accounts")
-            sleep(1)
-
-    if not success:
-        warn("Failed to add api account to remote: ")
-        prt('\n'.join(last_output))
-
-    # Now that the DB is running:
-    ex = client.exec_create(container=ui_id, cmd='ambry ui init')
-    client.exec_start(ex['Id'])
-
-    l.commit()
-
-    prt('UI Container')
-    prt('   Name       : {}'.format(remote.ui_name))
-    prt('   URL        : {} '.format(remote.url))
-    prt('   Credentials: {}/{} '.format(account.access_key, account.secret))
 
     if l and l.database.dsn != remote.db_dsn:
         prt("Set the library.database configuration to this DSN:")
@@ -497,6 +590,31 @@ def docker_init(args, l, rc):
 
     if remote.db_host == 'localhost':
         warn("No public port; you'll need to set up a tunnel for external access")
+
+def _docker_db_dsn(client, continer_id):
+    """Return the database DSN from inspecting a db container"""
+    from ambry.util import parse_url_to_dict
+
+    inspect = client.inspect_container(continer_id)
+
+    try:
+        port = inspect['NetworkSettings']['Ports']['5432/tcp'][0]['HostPort']
+    except (TypeError, KeyError):
+        port = None
+
+    env = { e.split('=')[0]:e.split('=')[1] for e in  inspect['Config']['Env'] }
+
+    if port:
+        dsn = 'postgres://{username}:{password}@{host}:{port}/{database}?docker'.format(
+            username=env['USER'], password=env['PASSWORD'], database=env['SCHEMA'],
+            host=parse_url_to_dict(client.base_url)['hostname'], port=port)
+
+    else:
+        dsn = 'postgres://{username}:{password}@{host}:{port}/{database}?docker'.format(
+            username=env['USER'], password=env['PASSWORD'], database=env['SCHEMA'],
+            host='localhost', port='5432')
+
+    return dsn
 
 
 def check_ambry_image(client, image):
@@ -560,7 +678,7 @@ def docker_shell(args, l, rc):
             detach=args.detach,
             tty= not args.detach,
             stdin_open= not args.detach,
-            environment=remote_envs(rc,remote),
+            environment=remote_envs(rc,remote.db_dsn),
             host_config=client.create_host_config(
                 volumes_from=[remote.vol_name],
                 links={
@@ -651,7 +769,7 @@ def docker_tunnel(args, l, rc):
         detach=False,
         tty=False,
         stdin_open=False,
-        environment=remote_envs(rc, remote),
+        environment=remote_envs(rc, remote.db_dsn),
         host_config=client.create_host_config(
             links={
                 remote.db_name: 'db'
@@ -786,7 +904,7 @@ def docker_ckan(args, l, rc, attach=True):
 
     if not running:
 
-        envs = remote_envs(rc, remote)
+        envs = remote_envs(rc, remote.db_dsn)
 
         vh_root = rc.get('docker', {}).get('ui_domain', None)
         if vh_root:
@@ -935,26 +1053,41 @@ def docker_info(args, l, rc):
             import sys
             sys.exit(1)
 
+def docker_host(args, l, rc):
 
-def remote_envs(rc, remote):
+    client = docker_client()
+
+    r = l.find_or_new_remote(client.base_url, service='docker_host')
+
+    r.url = client.base_url
+    r.service = 'docker_host'
+
+    if args.virtual:
+        r.virtual_host = '.'+args.virtual.strip('.')
+
+    l.commit()
+
+    prt("Docker host : {}", r.short_name)
+    prt("Virtual host: {}", r.virtual_host)
+
+
+
+def docker_local_dsn(dsn):
     from ambry.util import parse_url_to_dict, unparse_url_dict
-
-    d = parse_url_to_dict(remote.db_dsn)
-
-    if not 'docker' in d['query']:
-        fatal("Database '{}' doesn't look like a docker database DSN; it should have 'docker' at the end"
-              .format(remote.db_dsn))
+    d = parse_url_to_dict(dsn)
 
     # Create the new container DSN; in docker, the database is always known as 'db'
     d['hostname'] = 'db'
     d['port'] = None
-    dsn = unparse_url_dict(d)
 
-    envs = {}
-    envs['AMBRY_DB'] = dsn
-    envs['AMBRY_ACCOUNT_PASSWORD'] = (rc.accounts.get('password'))
+    return unparse_url_dict(d)
 
-    return envs
+def remote_envs(rc, dsn):
+
+    return {
+        'AMBRY_DB' :  docker_local_dsn(dsn)
+    }
+
 
 def docker_build(args, l, rc):
     from ambry_admin import docker as dckr_dir
