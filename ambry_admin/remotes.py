@@ -165,11 +165,10 @@ def update(args,l,rc):
 
     for r in l.remotes:
 
+        prt("Update {}".format(r.short_name))
         try:
             r.update()
-        except RemoteAccessError:
+            l.commit()
+        except RemoteAccessError as e:
             warn("Failed for {}: {}".format(r.short_name, e))
 
-            continue
-
-        l.commit()

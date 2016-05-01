@@ -407,6 +407,7 @@ def docker_ui(args, l, rc):
         if args.kill:
             return
 
+        # Try to get the base name for the virtual host from the docker host.
         virtual = args.virtual
 
         if not virtual:
@@ -458,7 +459,7 @@ def _init_ui(library, client, remote_url,  ui_container_id, virtual_host=None, t
             success = True
             break
         else:
-            prt("Database not running (yet?) Retry setting accounts")
+            prt("Database not running (yet?) Retry setting accounts ({})", last_output)
             sleep(1)
 
     if not success:
@@ -471,19 +472,21 @@ def _init_ui(library, client, remote_url,  ui_container_id, virtual_host=None, t
                             cmd='ambry accounts add -v user/admin -a admin -s {} admin'.format(admin_password))
     client.exec_start(ex['Id'])
 
-    api_password = random_string(20)
-    ex = client.exec_create(container=ui_container_id,
-                            cmd='ambry accounts add -v api -a api -s {} api'.format(api_password))
-    client.exec_start(ex['Id'])
+    remote = library.find_or_new_remote(remote_url, service='ambry')
 
-    # Create a remote entry
+    if not remote.secret:
 
-    acct = library.find_or_new_remote(remote_url, service='ambry')
-    acct.access = 'api'
-    acct.secret = api_password
+        api_password = random_string(20)
+        ex = client.exec_create(container=ui_container_id,
+                                cmd='ambry accounts add -v api -a api -s {} api'.format(api_password))
+        client.exec_start(ex['Id'])
+
+        # Create a remote entry
+
+        remote.access = 'api'
+        remote.secret = api_password
 
     library.commit()
-
 
     return admin_password
 
@@ -499,6 +502,7 @@ def _docker_mk_proxy(client):
 
     try:
         inspect = client.inspect_container(container_name)
+        print inspect['Id']
         prt('Found proxy container {}'.format(container_name))
     except NotFound:
         prt('Creating proxy container {}'.format(container_name))
@@ -529,11 +533,11 @@ def _docker_mk_proxy(client):
             except NotFound:
                 prt('Waiting for container to be created')
 
-        client.start(r['Id'])
-
-        inspect = client.inspect_container(r['Id'])
-
     inspect = client.inspect_container(container_name)
+
+    if not inspect['State']['Running']:
+        prt('Starting proxy container {}'.format(container_name))
+        client.start(inspect['Id'])
 
     return inspect['Id']
 
@@ -549,7 +553,6 @@ def docker_volumes(args, l, rc):
 
 def docker_library(args, l, rc):
     """Initialize a new docker volumes and database container, and report the database DSNs"""
-
 
     from ambry.util import parse_url_to_dict, random_string
 

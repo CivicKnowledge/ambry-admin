@@ -121,7 +121,7 @@ def list_accounts(args, l, rc):
             else:
                 t = acct.major_type
 
-            rec = [acct.account_id,t,acct.user_id,acct.access_key,acct.url]
+            rec = [acct.account_id,t,acct.name,acct.access_key,acct.url]
 
             if args.secret:
                 rec.append(acct.decrypt_secret())

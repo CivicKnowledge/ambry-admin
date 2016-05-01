@@ -57,6 +57,9 @@ def make_parser(cmd):
     sp.set_defaults(subcommand=sync)
     sp.add_argument('ref', nargs='*', type=str, help='Bundle references')
 
+    sp = asp.add_parser('update-listing', help="Cache the list of bundles so they can be listed via HTTP")
+    sp.set_defaults(subcommand=update_listing)
+
     sp = asp.add_parser('test', help="Call the API's test interface")
     sp.set_defaults(subcommand=test)
 
@@ -185,7 +188,6 @@ def syncacct(args, l, rc):
     from ambry.util import parse_url_to_dict
     from ambry.orm.exc import NotFoundError
 
-
     local_accounts = {}
 
     for account_name in  args.accounts:
@@ -203,3 +205,9 @@ def syncacct(args, l, rc):
 
 def sync(args, l, rc):
     raise NotImplementedError()
+
+def update_listing(args, l, rc):
+
+    remote = get_remote(l, args)
+
+    remote._update_fs_list()
