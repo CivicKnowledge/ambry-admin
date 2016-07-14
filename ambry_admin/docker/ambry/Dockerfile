@@ -1,9 +1,7 @@
 
 FROM civicknowledge/ambry-base
 
-MAINTAINER Eric Busboom "eric@civicknowledge.org"
-
-ENV AMBRY_IS_REMOTE 1
+MAINTAINER Eric Busboom "eric@civicknowledge.com"
 
 
 WORKDIR /tmp
@@ -35,7 +33,7 @@ WORKDIR /var/ambry
 VOLUME /var/ambry
 
 RUN mkdir -p /var/ambry/source
-RUN mkdir /etc/ambry
+RUN mkdir -p /etc/ambry
 RUN cp /opt/ambry/ambry/support/ambry-docker.yaml /etc/ambry/config.yaml
 RUN echo 'source /usr/local/bin/ambry-aliases.sh' >> /root/.bashrc
 

@@ -35,6 +35,7 @@ RUN chown postgres:postgres /usr/local/bin/postgres.sh /usr/local/etc/pg_backup.
   && chmod +x /usr/local/bin/log_watch.sh \
   && chown -R postgres:postgres /var/run/postgresql /var/backups /usr/local/etc
 
+
 # Locale setting
 ENV LOCALE en_US.UTF-8
 
@@ -76,6 +77,11 @@ RUN pgxn install multicorn
 
 RUN pip install ambry_sources[geo,fdw]
 
-RUN  usermod -G ambry postgres
+RUN  usermod -a -G ambry postgres
+
+# So the postgres user has access to the snakeoil certificate,
+# /etc/ssl/private/ssl-cert-snakeoil.key. This seems to be a problem only when using the aufs
+# storage.
+#RUN usermod -a -G ssl-cert postgres
 
 CMD ["/usr/bin/supervisord", "-c", "/etc/supervisor/supervisord.conf"]

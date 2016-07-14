@@ -12,11 +12,10 @@ Commands inlcude:
 __all__ = ['command_name', 'make_parser', 'run_command']
 command_name = 'remotes'
 
-
 from ambry.cli import prt, fatal, warn, err
 
-def make_parser(cmd):
 
+def make_parser(cmd):
     config_p = cmd.add_parser(command_name, help='Commands for managing the local list of remotes')
     config_p.set_defaults(command=command_name)
 
@@ -46,9 +45,9 @@ def make_parser(cmd):
     sp = asp.add_parser('update', help="Update the cached directory listing for each remote")
     sp.set_defaults(subcommand=update)
 
-
     sp = asp.add_parser('sync', help="Synchronize the remotes and accounts from the configuration to the database")
     sp.set_defaults(subcommand=sync)
+
 
 def run_command(args, rc):
     from ambry.library import new_library
@@ -60,7 +59,8 @@ def run_command(args, rc):
     except Exception as e:
         l = None
 
-    args.subcommand(args, l, rc) # Note the calls to sp.set_defaults(subcommand=...)
+    args.subcommand(args, l, rc)  # Note the calls to sp.set_defaults(subcommand=...)
+
 
 def add_remote(args, l, rc):
     from ambry.util import parse_url_to_dict
@@ -96,8 +96,8 @@ def add_remote(args, l, rc):
             fatal('secret_key argument requires a url')
         a.encrypt_secret(args.secret_key.strip())
 
-
     l.commit()
+
 
 def remove_remote(args, l, rc):
     from ambry.orm.exc import NotFoundError
@@ -122,33 +122,39 @@ def list_remotes(args, l, rc):
                 for k, v in remote.data['list'].items():
                     records.append([remote.short_name, k, v['name']])
 
-        print tabulate(records, ['Remote','Vid','VName'])
+        print tabulate(records, ['Remote', 'Vid', 'VName'])
 
     else:
 
         if args.service == 's3':
-            fields = ['short_name', 'bundle_count', 'url','access','secret']
+            fields = ['short_name', 'bundle_count', 'url', 'access', 'secret']
+        elif args.service == 'ambry':
+            fields = ['short_name', 'url', 'access', 'secret', 'admin_pw']
+
         elif args.service == 'docker':
             fields = ['short_name', 'service', 'url', 'docker_url', 'api_token', 'account_password',
                       'db_dsn', 'message']
         else:
-            fields = ['short_name', 'service', 'url' ]
+            fields = ['short_name', 'service', 'url']
 
         def proc_remote(r):
             from collections import OrderedDict
-            return  OrderedDict( (k,v) for k,v in r.dict.items() if k in fields )
+            od = OrderedDict((k, None) for k in fields)
+            od.update(OrderedDict((k, v) for k, v in r.dict.items() if k in fields))
+            return od
+
 
         remotes = [proc_remote(r) for r in l.remotes if r.service == args.service or not args.service]
 
         if not remotes:
             return
 
-        headers = remotes[0].keys()
 
-        records = drop_empty([headers]+[r.values() for r in remotes])
 
+        records = drop_empty([fields] + [r.values() for r in remotes])
 
         print tabulate(records[1:], records[0])
+
 
 def sync(args, l, rc):
     from ambry.library.config import LibraryConfigSyncProxy
@@ -157,7 +163,8 @@ def sync(args, l, rc):
 
     lsp.sync(force=True)
 
-def update(args,l,rc):
+
+def update(args, l, rc):
     from ambry.orm.remote import RemoteAccessError
     from ambry.orm.exc import NotFoundError
     from requests.exceptions import ConnectionError, HTTPError
@@ -171,4 +178,3 @@ def update(args,l,rc):
             l.commit()
         except RemoteAccessError as e:
             warn("Failed for {}: {}".format(r.short_name, e))
-

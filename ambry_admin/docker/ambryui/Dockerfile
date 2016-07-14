@@ -1,7 +1,7 @@
 
 FROM civicknowledge/ambry
 
-MAINTAINER Eric Busboom "eric@civicknowledge.org"
+MAINTAINER Eric Busboom "eric@civicknowledge.com"
 
 RUN pip install git+https://github.com/CivicKnowledge/ambry-ui.git
 RUN ambry config installcli ambry_ui

@@ -3,9 +3,8 @@
 # to PyPi and wait to get them installed via the requirement.txt file
 FROM civicknowledge/ambry-base
 
-MAINTAINER Eric Busboom "eric@civicknowledge.org"
+MAINTAINER Eric Busboom "eric@civicknowledge.com"
 
-ENV AMBRY_IS_REMOTE 1
 
 WORKDIR /tmp
 #
@@ -22,12 +21,15 @@ RUN pip install apsw==3.8.8.2-post1 psycopg2==2.6 Fiona==1.6.1 Shapely==1.5.12
 RUN pip install git+https://github.com/CivicKnowledge/ambry_sources.git && \
     pip install git+https://github.com/CivicKnowledge/geoid.git
 
+# Assumes the dockerfile is built with cwd at the root of the ambry distribution
 COPY . /tmp
 WORKDIR /opt/ambry/
 RUN cd /tmp/ambry-* && cp -r * /opt/ambry/ # The context tar file includes the version number
 
 # The cd ambry-* parts are because we don't know what the file name is; it includes a version number
 RUN python setup.py install
+# CD here, so calls to the ambry commant don't pick up the current dir for importing packages.
+WORKDIR /var/ambry
 RUN ambry config install
 
 # Ambry must be installed first

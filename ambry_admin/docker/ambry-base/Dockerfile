@@ -3,7 +3,7 @@
 # images built atop this one.
 FROM phusion/baseimage:0.9.18
 
-MAINTAINER Eric Busboom "eric@civicknowledge.org"
+MAINTAINER Eric Busboom "eric@civicknowledge.com"
 
 RUN apt-get update && apt-get install -y \
     language-pack-en \
@@ -39,4 +39,3 @@ RUN pip install --ignore-installed -r /tmp/ambry-*/requirements/base_py2.txt  &&
 
 RUN rm -rf /tmp/ambry-*
 
-RUN echo 'source /usr/local/bin/ambry-aliases.sh' >> /root/.bashrc

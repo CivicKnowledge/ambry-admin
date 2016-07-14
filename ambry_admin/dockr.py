@@ -48,7 +48,7 @@ def make_parser(cmd):
     sp.add_argument('-d', '--detach', default=False, action='store_true',
                     help="Detach after starting the process")
 
-    sp.add_argument('groupname', nargs=1, type=str, help='Name of group creat shell for')
+    sp.add_argument('-g','--group', type=str, help='Name of group create shell for')
     sp.add_argument('docker_command', nargs='*', type=str, help='Command to run, instead of bash')
 
     sp = asp.add_parser('tunnel', help='Run an ssh tunnel to the current database container')
@@ -90,6 +90,8 @@ def make_parser(cmd):
 
     sp.add_argument('-C', '--clean', default=False, action='store_true',
                     help='Build without the image cache -- completely rebuild')
+    sp.add_argument('-X', '--context', default=False, action='store_true',
+                    help='Build only the context TAR file, written to the dist subdirectory of the source')
     sp.add_argument('-a', '--all', default=False, action='store_true',
                     help='Build all of the images')
     sp.add_argument('-B', '--base', default=False, action='store_true',
@@ -306,8 +308,11 @@ def _docker_mk_ui(rc, client, group_name=None, dsn=None, virtual_host=None):
         prt('Found ui container {}'.format(docker_name))
 
         # So the info printing at the end works
-        envs['VIRTUAL_HOST'] = next( e.split('=')[1] for e in inspect['Config']['Env']
+        try:
+            envs['VIRTUAL_HOST'] = next( e.split('=')[1] for e in inspect['Config']['Env']
                                      if e.split('=')[0] == 'VIRTUAL_HOST' )
+        except IndexError:
+            pass # Probably, VIRTUAL_HOST is not in env
 
     except NotFound:
         prt('Creating ui container {}'.format(docker_name))
@@ -341,6 +346,7 @@ def _docker_mk_ui(rc, client, group_name=None, dsn=None, virtual_host=None):
                 port_bindings={80: ('0.0.0.0',)}
             )
         )
+
 
         r = client.create_container(**kwargs)
 
@@ -473,6 +479,10 @@ def _init_ui(library, client, remote_url,  ui_container_id, virtual_host=None, t
     client.exec_start(ex['Id'])
 
     remote = library.find_or_new_remote(remote_url, service='ambry')
+
+    library.commit() # In case the remote is new
+
+    remote.data['admin_pw'] = admin_password
 
     if not remote.secret:
 
@@ -622,6 +632,8 @@ def _docker_db_dsn(client, continer_id):
 
 def check_ambry_image(client, image):
     from docker.errors import NotFound, NullResource
+
+
     try:
         _ = client.inspect_image(image)
     except NotFound:
@@ -631,11 +643,26 @@ def docker_shell(args, l, rc):
     """Run a shell in an Ambry builder image, on the current docker host"""
 
     from docker.errors import NotFound, NullResource
+    from ambry.util import set_url_part
     import os
 
     client = docker_client()
-    remote = l.remote(args.groupname[0])
 
+    if args.group:
+        # The group was specified, so the database will be name 'db', via a docker link
+        remote = l.remote(args.group)
+        short_name = remote.short_name
+        dsn = set_url_part(remote.db_dsn, hostname='db')
+        host_config = client.create_host_config(volumes_from=[remote.vol_name],links={remote.db_name: 'db'})
+    else:
+        # No group was specified, so assume that the caller wants to use the DSN of the local library,
+        # which must be acessible over the network.
+        import hashlib
+        short_name = hashlib.md5(l.dsn).hexdigest()
+        dsn = l.dsn
+        host_config = client.create_host_config()
+
+    shell_name = 'ambry_shell_{}'.format(short_name)
 
     if args.docker_command:
 
@@ -645,9 +672,6 @@ def docker_shell(args, l, rc):
             docker_command =  list(args.docker_command)
     else:
         docker_command = None
-
-
-    shell_name = 'ambry_shell_{}'.format(remote.short_name)
 
     # Check if the  image exists.
 
@@ -675,23 +699,22 @@ def docker_shell(args, l, rc):
             name=shell_name,
             image=image,
             labels={
-                'civick.ambry.group': remote.short_name,
+                'civick.ambry.group': short_name,
                 'civick.ambry.role': 'shell'
             },
             detach=args.detach,
             tty= not args.detach,
             stdin_open= not args.detach,
-            environment=remote_envs(rc,remote.db_dsn),
-            host_config=client.create_host_config(
-                volumes_from=[remote.vol_name],
-                links={
-                    remote.db_name: 'db'
-                }
-            ),
+            environment={
+                'AMBRY_DB': dsn
+            },
+            host_config=host_config,
             command= docker_command or '/bin/bash'
         )
 
         prt('Starting container with image {} '.format(image))
+
+
 
         r = client.create_container(**kwargs)
 
@@ -1131,9 +1154,11 @@ def docker_build(args, l, rc):
                 tar.add(docker_file, arcname='Dockerfile')
                 tar.add(os.path.join(base_dir, 'ambry','ambry-init.sh'), arcname='ambry-init.sh')
                 tar.add(os.path.join(cd, 'ambry', 'support', 'ambry-docker.yaml'), arcname='config.yaml')
+                tar.add(os.path.join(cd, 'ambry', 'support', 'ambry-devel.yaml'), arcname='ambry/support/ambry-devel.yaml')
                 tar.close()
 
         return tar_file
+
 
 
     def d_build(name, context=None, tag = None):
@@ -1181,6 +1206,14 @@ def docker_build(args, l, rc):
                 raise DockerError(line)
 
         client.tag(tag+':latest', tag, __version__, force=True)
+
+    if args.context:
+
+        docker_file_dir = os.path.join(base_dir, 'dev') # 'dev' select which Dockerfile is included in the context
+        docker_file_in = os.path.join(docker_file_dir, 'Dockerfile')
+
+        context_file = make_dist_tar(docker_file_in)
+        prt('Built context file: {} '.format(context_file))
 
     if args.base or args.all:
         d_build('ambry-base', context=True)
